@@ -2,9 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/integration-tests.iml" filepath="$PROJECT_DIR$/.idea/integration-tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/prototype-gov-signin.iml" filepath="$PROJECT_DIR$/.idea/prototype-gov-signin.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/prototype-gov-signin@1.iml" filepath="$PROJECT_DIR$/.idea/prototype-gov-signin@1.iml" />
     </modules>
   </component>
 </project>
