@@ -1,0 +1,13 @@
+*.key
+*.sqlite
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+*.py[oc]
+iam/tests/
+integration_tests/
+.git
+.github
+.claude
+.idea
