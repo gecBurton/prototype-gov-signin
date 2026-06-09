@@ -1,4 +1,8 @@
-# prototype-gov-signin — Django OIDC Identity Provider
+> [!IMPORTANT]  
+> This private project is just-for-fun, no part of it is used or otherwise endorsed in UK Gov
+
+
+## prototype-gov-signin — Django OIDC Identity Provider
 
 A Django service that acts as an OpenID Connect identity provider for internal tools. Teams register their applications here and get a client ID and secret; their applications then authenticate users via the standard OIDC authorization code flow.
 
