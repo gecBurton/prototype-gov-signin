@@ -54,20 +54,28 @@
             <span class="govuk-header__product-name">Internal Access</span>
           </a>
         </div>
-        <div class="govuk-header__content">
-          {% if request.user.is_authenticated %}
-            <nav aria-label="Menu" class="govuk-header__navigation">
-              <ul class="govuk-header__navigation-list">
-                <li class="govuk-header__navigation-item">
-                  <a class="govuk-header__link" href="/accounts/logout/">Sign out</a>
-                </li>
-              </ul>
-            </nav>
-          {% endif %}
-        </div>
-        {% block service_menu %}{% endblock %}
       </div>
     </header>
+
+    {% if request.user.is_authenticated %}
+    <section aria-label="Service information" class="govuk-service-navigation" data-module="govuk-service-navigation">
+      <div class="govuk-width-container">
+        <div class="govuk-service-navigation__container">
+          <span class="govuk-service-navigation__service-name">
+            <a href="/" class="govuk-service-navigation__link">Internal Access</a>
+          </span>
+          <nav aria-label="Menu" class="govuk-service-navigation__wrapper">
+            <button type="button" class="govuk-service-navigation__toggle govuk-js-service-navigation-toggle" aria-controls="navigation" hidden>Menu</button>
+            <ul class="govuk-service-navigation__list" id="navigation">
+              <li class="govuk-service-navigation__item">
+                <a class="govuk-service-navigation__link" href="/accounts/logout/">Sign out</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </section>
+    {% endif %}
 
 
   <div class="govuk-width-container">
