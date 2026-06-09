@@ -7,6 +7,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("email", type=str)
+        parser.add_argument("--password", type=str, required=True)
 
     def handle(self, *args, **options):
         User = get_user_model()
@@ -17,5 +18,6 @@ class Command(BaseCommand):
             raise CommandError(f"No user found with email: {email}")
         user.is_staff = True
         user.is_superuser = True
-        user.save(update_fields=["is_staff", "is_superuser"])
+        user.set_password(options["password"])
+        user.save(update_fields=["is_staff", "is_superuser", "password"])
         self.stdout.write(self.style.SUCCESS(f"Promoted {email} to admin"))
