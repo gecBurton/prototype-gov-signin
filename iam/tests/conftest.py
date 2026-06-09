@@ -1,4 +1,6 @@
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
@@ -14,6 +16,14 @@ REDIRECT_URI = "http://localhost/callback"
 def configure_settings():
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     settings.ALLOWED_HOSTS = ["testserver", "localhost"]
+    if not settings.OAUTH2_PROVIDER.get("OIDC_RSA_PRIVATE_KEY"):
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode()
+        settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"] = pem
 
 
 @pytest.fixture(scope="session")
