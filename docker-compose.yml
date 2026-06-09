@@ -22,9 +22,9 @@ services:
       - "8025:8025"   # Web UI + REST API
 
   iam:
-    build: ./iam
+    build: .
     command: >
-      sh -c "uv run python manage.py migrate &&
+      sh -c "cd iam && uv run python manage.py migrate &&
              uv run python manage.py create_demo_apps &&
              uv run python manage.py runserver 0.0.0.0:8000"
     ports:

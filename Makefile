@@ -6,13 +6,13 @@ help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
 
 install: ## Install dependencies
-	cd iam && uv sync
+	uv sync
 
 test: ## Run tests
-	cd iam && uv run pytest
+	uv run pytest iam/tests/ -v
 
 format: ## Run linter
-	cd iam && uv run ruff check . --select I --fix && uv run ruff format .
+	uv run ruff check . --select I --fix && uv run ruff format .
 
 run: ## Start the development server
 	cd iam && uv run python manage.py runserver
@@ -39,7 +39,7 @@ db: ## Start only the database
 	docker compose up db -d
 
 install-integration: ## Install integration test dependencies and browsers
-	cd integration_tests && uv sync && uv run playwright install chromium
+	uv sync --group integration && uv run playwright install chromium
 
 integration-test: ## Run integration tests (requires: make up)
-	cd integration_tests && uv run pytest -v
+	uv run pytest integration_tests/ -v
