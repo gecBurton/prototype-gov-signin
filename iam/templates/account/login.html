@@ -1,0 +1,33 @@
+{% extends "allauth/layouts/base.html" %}
+{% load i18n %}
+{% load socialaccount %}
+
+{% block head_title %}{% trans "Sign In" %}{% endblock %}
+
+{% block content %}
+<h1 class="govuk-heading-l">{% trans "Sign in" %}</h1>
+
+{% get_providers as socialaccount_providers %}
+{% for provider in socialaccount_providers %}
+  <a href="{% provider_login_url provider.id process='login' %}"
+     class="govuk-button govuk-button--secondary"
+     data-module="govuk-button">
+    Sign in with {{ provider.name }}
+  </a>
+{% endfor %}
+
+{% if LOGIN_BY_CODE_ENABLED %}
+  {% if socialaccount_providers %}
+    <p class="govuk-body">
+      <a href="{{ request_login_code_url }}" class="govuk-link">{% trans "Sign in with a code by email instead" %}</a>
+    </p>
+  {% else %}
+    <a href="{{ request_login_code_url }}"
+       role="button"
+       class="govuk-button"
+       data-module="govuk-button">
+      {% trans "Send me a sign-in code" %}
+    </a>
+  {% endif %}
+{% endif %}
+{% endblock %}

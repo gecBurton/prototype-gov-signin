@@ -1,0 +1,19 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Delete {{ application.name }}{% endblock %}
+
+{% block inner_content %}
+<a href="{% url 'oauth2_provider:detail' application.pk %}" class="govuk-back-link">Back</a>
+
+<h1 class="govuk-heading-l">Delete {{ application.name }}</h1>
+
+<p class="govuk-body">Are you sure you want to delete <strong>{{ application.name }}</strong>? This cannot be undone.</p>
+
+<form method="post" action="{% url 'oauth2_provider:delete' application.pk %}">
+  {% csrf_token %}
+  <div class="govuk-button-group">
+    <button type="submit" class="govuk-button govuk-button--warning" data-module="govuk-button">Delete application</button>
+    <a href="{% url 'oauth2_provider:detail' application.pk %}" class="govuk-link">Cancel</a>
+  </div>
+</form>
+{% endblock %}

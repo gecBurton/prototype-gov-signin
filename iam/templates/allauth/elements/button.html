@@ -1,0 +1,18 @@
+{% load allauth govuk_forms %}
+{% if attrs.href %}
+  {% if attrs.tags|has_tag:"link" %}
+    <a href="{{ attrs.href }}"{% if attrs.id %} id="{{ attrs.id }}"{% endif %} class="govuk-link">{% slot %}{% endslot %}</a>
+  {% else %}
+    <a href="{{ attrs.href }}"{% if attrs.id %} id="{{ attrs.id }}"{% endif %} class="govuk-button govuk-button--secondary" draggable="false" data-module="govuk-button">{% slot %}{% endslot %}</a>
+  {% endif %}
+{% else %}
+  <button type="{{ attrs.type|default:'button' }}"
+          class="govuk-button{% if attrs.tags|has_tag:"outline" %} govuk-button--secondary{% endif %}"
+          data-module="govuk-button"
+          {% if attrs.form %}form="{{ attrs.form }}"{% endif %}
+          {% if attrs.id %}id="{{ attrs.id }}"{% endif %}
+          {% if attrs.name %}name="{{ attrs.name }}"{% endif %}
+          {% if attrs.value %}value="{{ attrs.value }}"{% endif %}>
+    {% slot %}{% endslot %}
+  </button>
+{% endif %}

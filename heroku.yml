@@ -1,0 +1,9 @@
+build:
+  docker:
+    web: iam/Dockerfile
+release:
+  command:
+    - sh
+    - -c
+    - "uv run python manage.py migrate --noinput && uv run python manage.py collectstatic --noinput"
+  image: web

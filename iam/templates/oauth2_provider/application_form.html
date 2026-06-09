@@ -1,0 +1,61 @@
+{% extends "oauth2_provider/base.html" %}
+{% load govuk_forms %}
+
+{% block title %}{% block form_title %}Edit {{ application.name }}{% endblock %}{% endblock %}
+
+{% block inner_content %}
+<a href="{% block form_back_url %}{% url 'oauth2_provider:detail' application.pk %}{% endblock %}" class="govuk-back-link">Back</a>
+
+<h1 class="govuk-heading-l">{% block form_heading %}Edit {{ application.name }}{% endblock %}</h1>
+
+{% if form.errors %}
+<div class="govuk-error-summary" data-module="govuk-error-summary">
+  <div role="alert">
+    <h2 class="govuk-error-summary__title">There is a problem</h2>
+    <div class="govuk-error-summary__body">
+      <ul class="govuk-list govuk-error-summary__list">
+        {% for field in form %}
+          {% for error in field.errors %}
+            <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+          {% endfor %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<form method="post" action="{% block form_action_url %}{% url 'oauth2_provider:update' application.pk %}{% endblock %}">
+  {% csrf_token %}
+  {% for field in form.visible_fields %}
+    {% if field.field.widget.input_type == 'checkbox' %}
+      <div class="govuk-form-group{% if field.errors %} govuk-form-group--error{% endif %}">
+        <div class="govuk-checkboxes">
+          <div class="govuk-checkboxes__item">
+            {{ field|as_govuk }}
+            <label class="govuk-label govuk-checkboxes__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          </div>
+        </div>
+        {% if field.help_text %}<div class="govuk-hint">{{ field.help_text }}</div>{% endif %}
+        {% for error in field.errors %}<p class="govuk-error-message"><span class="govuk-visually-hidden">Error:</span> {{ error }}</p>{% endfor %}
+      </div>
+    {% else %}
+      <div class="govuk-form-group{% if field.errors %} govuk-form-group--error{% endif %}">
+        <label class="govuk-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {% if field.help_text %}<div class="govuk-hint" id="{{ field.id_for_label }}-hint">{{ field.help_text }}</div>{% endif %}
+        {% for error in field.errors %}<p class="govuk-error-message" id="{{ field.id_for_label }}-error"><span class="govuk-visually-hidden">Error:</span> {{ error }}</p>{% endfor %}
+        {{ field|as_govuk }}
+      </div>
+    {% endif %}
+  {% endfor %}
+  {% for field in form.hidden_fields %}{{ field }}{% endfor %}
+
+  <div class="govuk-button-group">
+    <button type="submit" class="govuk-button" data-module="govuk-button">Save</button>
+    <a href="{% block form_cancel_url %}{% url 'oauth2_provider:list' %}{% endblock %}" class="govuk-link">Cancel</a>
+  </div>
+</form>
+{% endblock %}

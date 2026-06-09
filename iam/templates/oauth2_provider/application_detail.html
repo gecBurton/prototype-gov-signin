@@ -1,0 +1,46 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}{{ application.name }}{% endblock %}
+
+{% block inner_content %}
+<a href="{% url 'oauth2_provider:list' %}" class="govuk-back-link">Back</a>
+
+<h1 class="govuk-heading-l">{{ application.name }}</h1>
+
+<dl class="govuk-summary-list">
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Client ID</dt>
+    <dd class="govuk-summary-list__value"><code>{{ application.client_id }}</code></dd>
+  </div>
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Client secret</dt>
+    <dd class="govuk-summary-list__value"><code>{{ application.client_secret }}</code></dd>
+  </div>
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Client type</dt>
+    <dd class="govuk-summary-list__value">{{ application.client_type }}</dd>
+  </div>
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Grant type</dt>
+    <dd class="govuk-summary-list__value">{{ application.authorization_grant_type }}</dd>
+  </div>
+  {% if application.redirect_uris %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Redirect URIs</dt>
+    <dd class="govuk-summary-list__value">{{ application.redirect_uris }}</dd>
+  </div>
+  {% endif %}
+  {% if application.algorithm %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Algorithm</dt>
+    <dd class="govuk-summary-list__value">{{ application.algorithm }}</dd>
+  </div>
+  {% endif %}
+</dl>
+
+<div class="govuk-button-group">
+  <a href="{% url 'oauth2_provider:update' application.pk %}" class="govuk-button">Edit</a>
+  <a href="{% url 'oauth2_provider:owners' application.pk %}" class="govuk-button govuk-button--secondary">Manage owners</a>
+  <a href="{% url 'oauth2_provider:delete' application.pk %}" class="govuk-link">Delete application</a>
+</div>
+{% endblock %}

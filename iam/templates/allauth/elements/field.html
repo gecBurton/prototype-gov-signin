@@ -1,0 +1,42 @@
+{% load allauth %}
+<div class="govuk-form-group{% if attrs.errors %} govuk-form-group--error{% endif %}">
+  {% if attrs.type != "checkbox" and attrs.type != "radio" and attrs.type != "hidden" %}
+    <label class="govuk-label" for="{{ attrs.id }}">{% slot label %}{% endslot %}</label>
+  {% endif %}
+  {% if slots.help_text %}
+    <div class="govuk-hint" id="{{ attrs.id }}-hint">{% slot help_text %}{% endslot %}</div>
+  {% endif %}
+  {% if attrs.errors %}
+    <p class="govuk-error-message" id="{{ attrs.id }}-error">
+      <span class="govuk-visually-hidden">Error:</span> {{ attrs.errors }}
+    </p>
+  {% endif %}
+  {% if attrs.type == "textarea" %}
+    <textarea class="govuk-textarea{% if attrs.errors %} govuk-textarea--error{% endif %}"
+              {% if attrs.required %}required{% endif %}
+              {% if attrs.rows %}rows="{{ attrs.rows }}"{% endif %}
+              {% if attrs.name %}name="{{ attrs.name }}"{% endif %}
+              {% if attrs.id %}id="{{ attrs.id }}"{% endif %}
+              {% if attrs.placeholder %}placeholder="{{ attrs.placeholder }}"{% endif %}>{% slot value %}{% endslot %}</textarea>
+  {% elif attrs.type == "checkbox" or attrs.type == "radio" %}
+    <div class="govuk-checkboxes__item">
+      <input class="govuk-checkboxes__input"
+             type="{{ attrs.type }}"
+             {% if attrs.required %}required{% endif %}
+             {% if attrs.name %}name="{{ attrs.name }}"{% endif %}
+             {% if attrs.id %}id="{{ attrs.id }}"{% endif %}
+             {% if attrs.value is not None %}value="{{ attrs.value }}"{% endif %}
+             {% if attrs.checked %}checked{% endif %}>
+      <label class="govuk-label govuk-checkboxes__label" for="{{ attrs.id }}">{% slot label %}{% endslot %}</label>
+    </div>
+  {% else %}
+    <input class="govuk-input{% if attrs.errors %} govuk-input--error{% endif %}"
+           type="{{ attrs.type }}"
+           {% if attrs.required %}required{% endif %}
+           {% if attrs.autocomplete %}autocomplete="{{ attrs.autocomplete }}"{% endif %}
+           {% if attrs.name %}name="{{ attrs.name }}"{% endif %}
+           {% if attrs.id %}id="{{ attrs.id }}"{% endif %}
+           {% if attrs.placeholder %}placeholder="{{ attrs.placeholder }}"{% endif %}
+           {% if attrs.value is not None %}value="{{ attrs.value }}"{% endif %}>
+  {% endif %}
+</div>

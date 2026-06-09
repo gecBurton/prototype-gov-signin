@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: iam
+      POSTGRES_USER: iam
+      POSTGRES_PASSWORD: iam
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iam"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI + REST API
+
+  iam:
+    build: ./iam
+    command: >
+      sh -c "uv run python manage.py migrate &&
+             uv run python manage.py create_demo_apps &&
+             uv run python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./iam/oidc.key:/app/oidc.key:ro
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: iam
+      POSTGRES_USER: iam
+      POSTGRES_PASSWORD: iam
+      ALLOWED_HOSTS: "localhost,iam,127.0.0.1"
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: "1025"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SERVER_ROOT_URL: "http://localhost:3000"
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "IAM"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "grafana-secret"
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "http://localhost:8000/o/authorize/"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://iam:8000/o/token/"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://iam:8000/o/userinfo/"
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+      GF_AUTH_SIGNOUT_REDIRECT_URL: "http://localhost:8000/accounts/logout/"
+    depends_on:
+      - iam
+
+volumes:
+  postgres_data:

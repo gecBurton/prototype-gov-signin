@@ -1,0 +1,36 @@
+{% extends "oauth2_provider/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Authorise" %}{% endblock %}
+
+{% block inner_content %}
+  {% if not error %}
+    <h1 class="govuk-heading-l">{% trans "Authorise" %} {{ application.name }}?</h1>
+
+    <p class="govuk-body">{% trans "This application is requesting access to:" %}</p>
+    <ul class="govuk-list govuk-list--bullet">
+      {% for scope in scopes_descriptions %}
+        <li>{{ scope }}</li>
+      {% endfor %}
+    </ul>
+
+    <form id="authorizationForm" method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        {% if field.is_hidden %}{{ field }}{% endif %}
+      {% endfor %}
+
+      <div class="govuk-button-group">
+        <button type="submit" name="allow" value="{% trans "Authorize" %}" class="govuk-button" data-module="govuk-button">
+          {% trans "Authorise" %}
+        </button>
+        <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">
+          {% trans "Cancel" %}
+        </button>
+      </div>
+    </form>
+  {% else %}
+    <h1 class="govuk-heading-l">{% trans "Error" %}</h1>
+    <p class="govuk-body">{{ error.description }}</p>
+  {% endif %}
+{% endblock %}

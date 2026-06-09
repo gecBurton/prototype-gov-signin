@@ -1,0 +1,17 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Access denied{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">You cannot access this application</h1>
+
+<p class="govuk-body">
+  Your account is not authorised to use <strong>{{ application.name }}</strong>.
+</p>
+
+<p class="govuk-body">
+  This application restricts access by email domain. Contact the application owner if you believe you should have access.
+</p>
+
+<a href="/" class="govuk-link">Return to start</a>
+{% endblock %}
