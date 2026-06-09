@@ -2,7 +2,6 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import TemplateView
 from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
-
 from users.views import (
     ApplicationDelete,
     ApplicationDetail,

@@ -5,7 +5,6 @@ import secrets
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
-
 from users.views import _is_domain_allowed
 
 User = get_user_model()
