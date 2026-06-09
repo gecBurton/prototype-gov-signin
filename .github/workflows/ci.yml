@@ -21,14 +21,11 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-    defaults:
-      run:
-        working-directory: iam
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen
-      - run: uv run pytest tests/ -v
+      - run: uv sync --frozen --group dev
+      - run: uv run pytest iam/tests/ -v
         env:
           POSTGRES_HOST: localhost
           POSTGRES_DB: iam
