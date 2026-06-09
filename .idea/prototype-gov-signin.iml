@@ -3,8 +3,6 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
-      <excludeFolder url="file://$MODULE_DIR$/iam/.venv" />
-      <excludeFolder url="file://$MODULE_DIR$/integration_tests/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="uv (prototype-gov-signin)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
