@@ -56,21 +56,8 @@
         </div>
         <div class="govuk-header__content">
           {% if request.user.is_authenticated %}
-            <nav aria-label="Menu" class="govuk-header__navigation ">
-              <button type="button"
-                      class="govuk-header__menu-button govuk-js-header-toggle"
-                      aria-controls="navigation"
-                      aria-label="Show or hide menu">Menu</button>
-              <ul id="navigation" class="govuk-header__navigation-list">
-                <li class="govuk-header__navigation-item {% if nav_item == 'dashboard' %}govuk-header__navigation-item--active{% endif %}">
-                  <a class="govuk-header__link" href="/dashboard">Dashboard</a>
-                </li>
-                <li class="govuk-header__navigation-item {% if nav_item == 'profile' %}govuk-header__navigation-item--active{% endif %}">
-                  <a class="govuk-header__link" href="/profile">Profile</a>
-                </li>
-                <li class="govuk-header__navigation-item {% if nav_item == 'help' %}govuk-header__navigation-item--active{% endif %}">
-                  <a class="govuk-header__link" href="/help">Help</a>
-                </li>
+            <nav aria-label="Menu" class="govuk-header__navigation">
+              <ul class="govuk-header__navigation-list">
                 <li class="govuk-header__navigation-item">
                   <a class="govuk-header__link" href="/accounts/logout/">Sign out</a>
                 </li>
