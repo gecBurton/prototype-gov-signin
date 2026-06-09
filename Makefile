@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install test run migrate makemigrations demo shell up down db integration-test install-integration
+.PHONY: help install test run migrate makemigrations demo shell up down db integration-test install-integration format format-check
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -13,6 +13,9 @@ test: ## Run tests
 
 format: ## Run linter
 	uv run ruff check . --select I --fix && uv run ruff format .
+
+format-check: ## Check formatting without making changes (used in CI)
+	uv run ruff check . --select I && uv run ruff format --check .
 
 run: ## Start the development server
 	cd iam && uv run python manage.py runserver
