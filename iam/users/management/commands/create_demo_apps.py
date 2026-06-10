@@ -19,11 +19,7 @@ class Command(BaseCommand):
         )
 
     def _create_user(self, email):
-        username = email.split("@")[0]
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={"username": username},
-        )
+        user, created = User.objects.get_or_create(email=email)
         if created:
             user.set_unusable_password()
             user.save()

@@ -40,12 +40,12 @@ def _make_app(name, team):
 
 @pytest.fixture
 def allowed_user(db):
-    return User.objects.create_user(username="allowed", email="user@allowed.com")
+    return User.objects.create_user(email="user@allowed.com")
 
 
 @pytest.fixture
 def blocked_user(db):
-    return User.objects.create_user(username="blocked", email="user@blocked.com")
+    return User.objects.create_user(email="user@blocked.com")
 
 
 @pytest.fixture
@@ -178,7 +178,7 @@ def test_authorize_post_domain_check(
     ],
 )
 def test_authorize_domain_cases(client, db, email, allowed_domains, expected_status):
-    user = User.objects.create_user(username=email, email=email)
+    user = User.objects.create_user(email=email)
     application = _make_app("Test", _make_team("Case Team", allowed_domains))
     client.force_login(user)
     response = client.get("/o/authorize/", _authorize_params(application))

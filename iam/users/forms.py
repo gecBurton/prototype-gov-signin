@@ -21,7 +21,7 @@ class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
         if users:
             self._user = users[0]
         else:
-            user = User(email=email, username=email[:150])
+            user = User(email=email)
             user.set_unusable_password()
             user.save()
             EmailAddress.objects.create(

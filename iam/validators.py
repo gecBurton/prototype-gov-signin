@@ -7,6 +7,6 @@ class OIDCValidator(OAuth2Validator):
         return {
             "email": user.email,
             "email_verified": True,
-            "name": user.get_full_name() or user.username,
-            "preferred_username": user.username,
+            "name": user.get_full_name() or user.email,
+            "preferred_username": user.email,
         }

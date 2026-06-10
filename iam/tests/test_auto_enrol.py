@@ -34,7 +34,7 @@ def test_new_user_redirected_to_code_confirm(anon_client):
 
 def test_existing_user_not_duplicated(db):
     email = "existing@example.com"
-    user = User.objects.create_user(username="existing", email=email)
+    user = User.objects.create_user(email=email)
     EmailAddress.objects.create(user=user, email=email, primary=True, verified=True)
 
     client = Client()
