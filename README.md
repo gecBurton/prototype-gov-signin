@@ -96,8 +96,18 @@ openssl genrsa -out iam/oidc.key 4096
 
 ## Running locally
 
+Prerequisites: [Docker](https://docs.docker.com/get-docker/) and [uv](https://docs.astral.sh/uv/).
+
+First generate the OIDC signing key (one-off — the file is gitignored, and `docker compose` bind-mounts it into the container):
+
 ```
-docker compose up
+openssl genrsa -out iam/oidc.key 4096
+```
+
+Then start the stack:
+
+```
+make up
 ```
 
 This starts:
@@ -112,10 +122,29 @@ On first start, `manage.py create_demo_apps` seeds a demo user and a Grafana OAu
 
 The `SECRET_KEY` environment variable is always required — there is no fallback and the service refuses to start without one. `DEBUG` defaults to **false**; when false, HTTPS-only cookies and SSL redirect are enabled. The dev entry points (`docker compose up`, `make run`, pytest) set `DEBUG=true` and an insecure dev `SECRET_KEY` for you, so a deployed instance only needs to set a real `SECRET_KEY` and leave `DEBUG` unset.
 
+Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` is set, codes are sent via GOV.UK Notify; otherwise if `EMAIL_HOST` is set, plain SMTP is used (docker compose points this at Mailpit); otherwise emails are printed to the console.
+
 ## Running tests
 
+### Unit tests
+
 ```
-cd iam && pytest tests/
+make install
+make test
 ```
 
-Tests use SQLite (no Postgres needed) and `locmem` email backend. The full OIDC flow is covered in `tests/test_oidc_flow.py`.
+Tests use SQLite (no Postgres needed) and `locmem` email backend. The full OIDC flow is covered in `iam/tests/test_oidc_flow.py`.
+
+### Integration tests (Playwright)
+
+End-to-end browser tests in `integration_tests/` drive the full docker compose stack: login by email code (reading the code from Mailpit's API), the Grafana OIDC flow, and team/application management. They need the stack running (see [Running locally](#running-locally)):
+
+```
+make install-integration   # one-off: installs the integration deps + Chromium
+make up                    # in a separate terminal, if not already running
+make integration-test
+```
+
+The tests seed data (teams, users) by shelling into the running `iam` container with `docker compose exec`, so they must be run from the repository root against the compose stack — not against a bare `make run` server.
+
+Both suites run in CI (`.github/workflows/ci.yml`); the integration job builds the compose stack on the runner and generates a throwaway `oidc.key`.
