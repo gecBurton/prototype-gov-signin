@@ -1,11 +1,12 @@
+from functools import cached_property
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.forms.models import modelform_factory
-from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
-from django.views.generic import DetailView
-from django.views.generic.detail import SingleObjectMixin
+from django.views.generic import ListView
 from oauth2_provider.models import get_application_model
 from oauth2_provider.views import application as base_views
 from oauth2_provider.views import base as oidc_base_views
@@ -21,139 +22,142 @@ _APPLICATION_FORM_FIELDS = (
     "post_logout_redirect_uris",
     "allowed_origins",
     "algorithm",
-    "allowed_email_domains",
 )
 
 
-class ApplicationOwnerMixin(LoginRequiredMixin):
+class TeamApplicationMixin(LoginRequiredMixin):
+    """Scope application views to the team in the URL, 404ing for non-members."""
+
+    @cached_property
+    def team(self):
+        return get_object_or_404(self.request.user.teams, pk=self.kwargs["team_pk"])
+
     def get_queryset(self):
-        team = self.request.user.team
-        if team is None:
-            return get_application_model().objects.none()
-        return get_application_model().objects.filter(team=team)
+        return get_application_model().objects.filter(team=self.team)
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(team=self.team, **kwargs)
 
 
-class ApplicationRegistration(base_views.ApplicationRegistration):
-    def dispatch(self, request, *args, **kwargs):
-        if request.user.is_authenticated and request.user.team is None:
-            return HttpResponseForbidden(
-                "You must be a member of a team to register an application."
-            )
-        return super().dispatch(request, *args, **kwargs)
-
+class ApplicationRegistration(TeamApplicationMixin, base_views.ApplicationRegistration):
     def get_form_class(self):
         return modelform_factory(
             get_application_model(), fields=_APPLICATION_FORM_FIELDS
         )
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        self.object.team = self.request.user.team
-        self.object.save()
-        return response
+        form.instance.team = self.team
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse(
+            "oauth2_provider:detail",
+            kwargs={"team_pk": self.team.pk, "pk": self.object.pk},
+        )
 
 
-class ApplicationList(ApplicationOwnerMixin, base_views.ApplicationList):
+class ApplicationDetail(TeamApplicationMixin, base_views.ApplicationDetail):
     pass
 
 
-class ApplicationDetail(ApplicationOwnerMixin, base_views.ApplicationDetail):
-    pass
-
-
-class ApplicationUpdate(ApplicationOwnerMixin, base_views.ApplicationUpdate):
+class ApplicationUpdate(TeamApplicationMixin, base_views.ApplicationUpdate):
     def get_form_class(self):
         return modelform_factory(
             get_application_model(), fields=_APPLICATION_FORM_FIELDS
         )
 
-
-class ApplicationDelete(ApplicationOwnerMixin, base_views.ApplicationDelete):
-    pass
-
-
-class ApplicationOwnerManage(ApplicationOwnerMixin, DetailView):
-    context_object_name = "application"
-    template_name = "oauth2_provider/application_owners.html"
-
-    def post(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        email = request.POST.get("email", "").strip()
-        User = get_user_model()
-        error = None
-
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            error = f"No user found with email {email}."
-        else:
-            if user.team_id == self.object.team_id:
-                error = f"{email} is already a team member."
-            else:
-                user.team = self.object.team
-                user.save()
-                return redirect("oauth2_provider:owners", pk=self.object.pk)
-
-        return self.render_to_response(self.get_context_data(error=error))
-
-
-class ApplicationOwnerRemove(ApplicationOwnerMixin, SingleObjectMixin, View):
-    def post(self, request, *args, **kwargs):
-        application = self.get_object()
-        user_to_remove = get_object_or_404(get_user_model(), pk=kwargs["user_pk"])
-
-        if user_to_remove.team_id == application.team_id:
-            user_to_remove.team = None
-            user_to_remove.save()
-
-        return redirect("oauth2_provider:owners", pk=application.pk)
-
-
-class TeamManage(LoginRequiredMixin, View):
-    template_name = "oauth2_provider/team.html"
-
-    def _render(self, request, error=None):
-        return render(
-            request, self.template_name, {"team": request.user.team, "error": error}
+    def get_success_url(self):
+        return reverse(
+            "oauth2_provider:detail",
+            kwargs={"team_pk": self.team.pk, "pk": self.object.pk},
         )
 
+
+class ApplicationDelete(TeamApplicationMixin, base_views.ApplicationDelete):
+    def get_success_url(self):
+        return reverse("oauth2_provider:team", kwargs={"pk": self.team.pk})
+
+
+class TeamList(LoginRequiredMixin, ListView):
+    template_name = "oauth2_provider/team_list.html"
+    context_object_name = "teams"
+
+    def get_queryset(self):
+        return self.request.user.teams.all()
+
+
+class TeamDetail(LoginRequiredMixin, View):
+    template_name = "oauth2_provider/team_detail.html"
+
+    def _get_team(self, request):
+        return get_object_or_404(request.user.teams, pk=self.kwargs["pk"])
+
+    def _render(self, request, team, error=None):
+        return render(request, self.template_name, {"team": team, "error": error})
+
     def get(self, request, *args, **kwargs):
-        return self._render(request)
+        return self._render(request, self._get_team(request))
 
     def post(self, request, *args, **kwargs):
-        if request.user.team is None:
-            return HttpResponseForbidden()
+        team = self._get_team(request)
         email = request.POST.get("email", "").strip()
         User = get_user_model()
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return self._render(request, error=f"No user found with email {email}.")
-        if user.team_id == request.user.team_id:
-            return self._render(request, error=f"{email} is already a team member.")
-        user.team = request.user.team
-        user.save()
-        return redirect("oauth2_provider:team")
+            return self._render(
+                request, team, error=f"No user found with email {email}."
+            )
+        if user.teams.filter(pk=team.pk).exists():
+            return self._render(
+                request, team, error=f"{email} is already a team member."
+            )
+        user.teams.add(team)
+        return redirect("oauth2_provider:team", pk=team.pk)
 
 
 class TeamMemberRemove(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        if request.user.team is None:
-            return HttpResponseForbidden()
+        team = get_object_or_404(request.user.teams, pk=kwargs["pk"])
         user_to_remove = get_object_or_404(get_user_model(), pk=kwargs["user_pk"])
-        if user_to_remove.team_id == request.user.team_id:
-            user_to_remove.team = None
-            user_to_remove.save()
-        return redirect("oauth2_provider:team")
+        user_to_remove.teams.remove(team)
+        return redirect("oauth2_provider:team", pk=team.pk)
+
+
+class TeamDomainAdd(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        team = get_object_or_404(request.user.teams, pk=kwargs["pk"])
+        domain = request.POST.get("domain", "").strip().lower()
+        if not domain:
+            error = "Enter a domain."
+        elif "." not in domain:
+            error = f"{domain} is too broad. Enter a full domain, like cabinetoffice.gov.uk."
+        elif team.allowed_email_domains.filter(domain=domain).exists():
+            error = f"{domain} is already allowed."
+        else:
+            team.allowed_email_domains.create(domain=domain)
+            return redirect("oauth2_provider:team", pk=team.pk)
+        return render(
+            request,
+            "oauth2_provider/team_detail.html",
+            {"team": team, "domain_error": error},
+        )
+
+
+class TeamDomainRemove(LoginRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        team = get_object_or_404(request.user.teams, pk=kwargs["pk"])
+        get_object_or_404(team.allowed_email_domains, pk=kwargs["domain_pk"]).delete()
+        return redirect("oauth2_provider:team", pk=team.pk)
 
 
 def _is_domain_allowed(application, email):
-    domains = application.allowed_email_domains.strip()
-    if not domains:
+    if application.team is None:
         return True
-    user_domain = email.rsplit("@", 1)[-1].lower()
-    allowed = {d.strip().lower() for d in domains.splitlines() if d.strip()}
-    return user_domain in allowed
+    allowed = application.team.allowed_email_domains
+    labels = email.rsplit("@", 1)[-1].lower().split(".")
+    suffixes = [".".join(labels[i:]) for i in range(len(labels))]
+    return allowed.filter(domain__in=suffixes).exists() or not allowed.exists()
 
 
 class AuthorizationView(oidc_base_views.AuthorizationView):

@@ -5,12 +5,32 @@ import secrets
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
+from users.models import Team
 from users.views import _is_domain_allowed
 
 User = get_user_model()
 Application = get_application_model()
 
 REDIRECT_URI = "http://localhost/callback"
+
+
+def _make_team(name, domains):
+    team = Team.objects.create(name=name)
+    for domain in domains:
+        team.allowed_email_domains.create(domain=domain)
+    return team
+
+
+def _make_app(name, team):
+    return Application.objects.create(
+        name=name,
+        client_type=Application.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+        redirect_uris=REDIRECT_URI,
+        algorithm="RS256",
+        skip_authorization=False,
+        team=team,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -30,29 +50,12 @@ def blocked_user(db):
 
 @pytest.fixture
 def app(db):
-    application = Application.objects.create(
-        name="Restricted App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
-        redirect_uris=REDIRECT_URI,
-        allowed_email_domains="allowed.com",
-        algorithm="RS256",
-        skip_authorization=False,
-    )
-    return application
+    return _make_app("Restricted App", _make_team("Restricted Team", ["allowed.com"]))
 
 
 @pytest.fixture
 def open_app(db):
-    return Application.objects.create(
-        name="Open App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
-        redirect_uris=REDIRECT_URI,
-        allowed_email_domains="",
-        algorithm="RS256",
-        skip_authorization=False,
-    )
+    return _make_app("Open App", _make_team("Open Team", []))
 
 
 def _authorize_params(app):
@@ -80,19 +83,27 @@ def _authorize_params(app):
 @pytest.mark.parametrize(
     "domains,email,expected",
     [
-        ("", "anyone@anything.com", True),  # blank = allow all
-        ("allowed.com", "user@allowed.com", True),
-        ("allowed.com", "user@blocked.com", False),
-        ("ALLOWED.COM", "user@allowed.com", True),  # case-insensitive domains
-        ("allowed.com", "user@ALLOWED.COM", True),  # case-insensitive email
-        ("a.com\nb.com\nc.com", "user@b.com", True),  # multiple domains
-        ("a.com\nb.com\nc.com", "user@d.com", False),
-        ("  allowed.com  ", "user@allowed.com", True),  # whitespace tolerance
+        ([], "anyone@anything.com", True),  # no domains = allow all
+        (["allowed.com"], "user@allowed.com", True),
+        (["allowed.com"], "user@blocked.com", False),
+        (["ALLOWED.COM"], "user@allowed.com", True),  # domains stored lowercase
+        (["allowed.com"], "user@ALLOWED.COM", True),  # case-insensitive email
+        (["a.com", "b.com", "c.com"], "user@b.com", True),  # multiple domains
+        (["a.com", "b.com", "c.com"], "user@d.com", False),
+        (["  allowed.com  "], "user@allowed.com", True),  # whitespace tolerance
+        (["gov.uk"], "some.one@department.gov.uk", True),  # subdomains match
+        (["gov.uk"], "some.one@deep.nested.gov.uk", True),
+        (["gov.uk"], "some.one@evilgov.uk", False),  # suffix must be a full label
+        (["department.gov.uk"], "some.one@gov.uk", False),  # parent domain no match
     ],
 )
 def test_is_domain_allowed(db, domains, email, expected):
-    app = Application(allowed_email_domains=domains)
-    assert _is_domain_allowed(app, email) is expected
+    team = _make_team("Test Team", domains)
+    assert _is_domain_allowed(Application(team=team), email) is expected
+
+
+def test_teamless_application_allows_all(db):
+    assert _is_domain_allowed(Application(), "anyone@anything.com") is True
 
 
 # ---------------------------------------------------------------------------
@@ -159,24 +170,16 @@ def test_authorize_post_domain_check(
 @pytest.mark.parametrize(
     "email,allowed_domains,expected_status",
     [
-        ("user@alpha.com", "alpha.com\nbeta.com", 200),
-        ("user@beta.com", "alpha.com\nbeta.com", 200),
-        ("user@gamma.com", "alpha.com\nbeta.com", 403),
-        ("user@ALPHA.COM", "alpha.com", 200),  # email domain uppercase
-        ("user@alpha.com", "ALPHA.COM", 200),  # whitelist uppercase
+        ("user@alpha.com", ["alpha.com", "beta.com"], 200),
+        ("user@beta.com", ["alpha.com", "beta.com"], 200),
+        ("user@gamma.com", ["alpha.com", "beta.com"], 403),
+        ("user@ALPHA.COM", ["alpha.com"], 200),  # email domain uppercase
+        ("user@alpha.com", ["ALPHA.COM"], 200),  # whitelist uppercase
     ],
 )
 def test_authorize_domain_cases(client, db, email, allowed_domains, expected_status):
     user = User.objects.create_user(username=email, email=email)
-    application = Application.objects.create(
-        name="Test",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
-        redirect_uris=REDIRECT_URI,
-        allowed_email_domains=allowed_domains,
-        algorithm="RS256",
-        skip_authorization=False,
-    )
+    application = _make_app("Test", _make_team("Case Team", allowed_domains))
     client.force_login(user)
     response = client.get("/o/authorize/", _authorize_params(application))
     assert response.status_code == expected_status

@@ -80,8 +80,7 @@ def team(db):
 def owner(team):
     User = get_user_model()
     user = User.objects.create_user(username="owner", email="owner@example.com")
-    user.team = team
-    user.save()
+    user.teams.add(team)
     return user
 
 

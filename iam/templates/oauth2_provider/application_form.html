@@ -4,7 +4,7 @@
 {% block title %}{% block form_title %}Edit {{ application.name }}{% endblock %}{% endblock %}
 
 {% block inner_content %}
-<a href="{% block form_back_url %}{% url 'oauth2_provider:detail' application.pk %}{% endblock %}" class="govuk-back-link">Back</a>
+<a href="{% block form_back_url %}{% url 'oauth2_provider:detail' team_pk=team.pk pk=application.pk %}{% endblock %}" class="govuk-back-link">Back</a>
 
 <h1 class="govuk-heading-l">{% block form_heading %}Edit {{ application.name }}{% endblock %}</h1>
 
@@ -28,7 +28,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="{% block form_action_url %}{% url 'oauth2_provider:update' application.pk %}{% endblock %}">
+<form method="post" action="{% block form_action_url %}{% url 'oauth2_provider:update' team_pk=team.pk pk=application.pk %}{% endblock %}">
   {% csrf_token %}
   {% for field in form.visible_fields %}
     {% if field.field.widget.input_type == 'checkbox' %}
@@ -55,7 +55,7 @@
 
   <div class="govuk-button-group">
     <button type="submit" class="govuk-button" data-module="govuk-button">Save</button>
-    <a href="{% block form_cancel_url %}{% url 'oauth2_provider:list' %}{% endblock %}" class="govuk-link">Cancel</a>
+    <a href="{% block form_cancel_url %}{% url 'oauth2_provider:team' pk=team.pk %}{% endblock %}" class="govuk-link">Cancel</a>
   </div>
 </form>
 {% endblock %}

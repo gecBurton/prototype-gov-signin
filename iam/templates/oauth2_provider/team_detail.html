@@ -1,0 +1,108 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}{{ team.name }}{% endblock %}
+
+{% block inner_content %}
+<a href="{% url 'oauth2_provider:teams' %}" class="govuk-back-link">Back</a>
+
+<h1 class="govuk-heading-l">{{ team.name }}</h1>
+
+{% if error or domain_error %}
+<div class="govuk-error-summary" data-module="govuk-error-summary">
+  <div role="alert">
+    <h2 class="govuk-error-summary__title">There is a problem</h2>
+    <div class="govuk-error-summary__body">
+      <ul class="govuk-list govuk-error-summary__list">
+        {% if error %}<li><a href="#email">{{ error }}</a></li>{% endif %}
+        {% if domain_error %}<li><a href="#domain">{{ domain_error }}</a></li>{% endif %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<h2 class="govuk-heading-m">Applications</h2>
+
+{% if team.applications.all %}
+<ul class="govuk-list">
+  {% for application in team.applications.all %}
+  <li><a class="govuk-link" href="{% url 'oauth2_provider:detail' team_pk=team.pk pk=application.pk %}">{{ application.name }}</a></li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="govuk-body">This team has no applications registered yet.</p>
+{% endif %}
+
+<a href="{% url 'oauth2_provider:register' team_pk=team.pk %}" class="govuk-button" data-module="govuk-button">Register a new application</a>
+
+<h2 class="govuk-heading-m">Members</h2>
+
+<dl class="govuk-summary-list">
+  {% for member in team.members.all %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">{{ member.email }}</dt>
+    <dd class="govuk-summary-list__actions">
+      <form method="post" action="{% url 'oauth2_provider:remove-team-member' pk=team.pk user_pk=member.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="govuk-link" style="background:none;border:0;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">
+          Remove<span class="govuk-visually-hidden"> {{ member.email }}</span>
+        </button>
+      </form>
+    </dd>
+  </div>
+  {% endfor %}
+</dl>
+
+<h2 class="govuk-heading-m">Add team member</h2>
+
+<form method="post" action="{% url 'oauth2_provider:team' pk=team.pk %}">
+  {% csrf_token %}
+  <div class="govuk-form-group{% if error %} govuk-form-group--error{% endif %}">
+    <label class="govuk-label" for="email">Email address</label>
+    {% if error %}
+    <p class="govuk-error-message" id="email-error">
+      <span class="govuk-visually-hidden">Error:</span> {{ error }}
+    </p>
+    {% endif %}
+    <input class="govuk-input{% if error %} govuk-input--error{% endif %}" type="email" name="email" id="email" autocomplete="email" required>
+  </div>
+  <button class="govuk-button" data-module="govuk-button">Add team member</button>
+</form>
+
+<h2 class="govuk-heading-m">Allowed email domains</h2>
+
+<p class="govuk-body">Users signing in to this team's applications must have an email address on one of these domains or their subdomains. If no domains are listed, all users are allowed.</p>
+
+{% if team.allowed_email_domains.all %}
+<dl class="govuk-summary-list">
+  {% for allowed_domain in team.allowed_email_domains.all %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">{{ allowed_domain.domain }}</dt>
+    <dd class="govuk-summary-list__actions">
+      <form method="post" action="{% url 'oauth2_provider:remove-domain' pk=team.pk domain_pk=allowed_domain.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="govuk-link" style="background:none;border:0;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">
+          Remove<span class="govuk-visually-hidden"> {{ allowed_domain.domain }}</span>
+        </button>
+      </form>
+    </dd>
+  </div>
+  {% endfor %}
+</dl>
+{% endif %}
+
+<form method="post" action="{% url 'oauth2_provider:add-domain' pk=team.pk %}">
+  {% csrf_token %}
+  <div class="govuk-form-group{% if domain_error %} govuk-form-group--error{% endif %}">
+    <label class="govuk-label" for="domain">Domain</label>
+    <div class="govuk-hint" id="domain-hint">For example, cabinetoffice.gov.uk</div>
+    {% if domain_error %}
+    <p class="govuk-error-message" id="domain-error">
+      <span class="govuk-visually-hidden">Error:</span> {{ domain_error }}
+    </p>
+    {% endif %}
+    <input class="govuk-input{% if domain_error %} govuk-input--error{% endif %}" type="text" name="domain" id="domain" required>
+  </div>
+  <button class="govuk-button" data-module="govuk-button">Add domain</button>
+</form>
+{% endblock %}

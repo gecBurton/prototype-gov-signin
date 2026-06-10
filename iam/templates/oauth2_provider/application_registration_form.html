@@ -2,6 +2,6 @@
 
 {% block form_title %}Register a new application{% endblock %}
 {% block form_heading %}Register a new application{% endblock %}
-{% block form_back_url %}{% url 'oauth2_provider:list' %}{% endblock %}
-{% block form_action_url %}{% url 'oauth2_provider:register' %}{% endblock %}
-{% block form_cancel_url %}{% url 'oauth2_provider:list' %}{% endblock %}
+{% block form_back_url %}{% url 'oauth2_provider:team' pk=team.pk %}{% endblock %}
+{% block form_action_url %}{% url 'oauth2_provider:register' team_pk=team.pk %}{% endblock %}
+{% block form_cancel_url %}{% url 'oauth2_provider:team' pk=team.pk %}{% endblock %}

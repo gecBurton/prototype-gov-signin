@@ -3,7 +3,7 @@
 {% block title %}{{ application.name }}{% endblock %}
 
 {% block inner_content %}
-<a href="{% url 'oauth2_provider:list' %}" class="govuk-back-link">Back</a>
+<a href="{% url 'oauth2_provider:team' pk=team.pk %}" class="govuk-back-link">Back</a>
 
 <h1 class="govuk-heading-l">{{ application.name }}</h1>
 
@@ -39,7 +39,7 @@
 </dl>
 
 <div class="govuk-button-group">
-  <a href="{% url 'oauth2_provider:update' application.pk %}" class="govuk-button">Edit</a>
-  <a href="{% url 'oauth2_provider:delete' application.pk %}" class="govuk-link">Delete application</a>
+  <a href="{% url 'oauth2_provider:update' team_pk=team.pk pk=application.pk %}" class="govuk-button">Edit</a>
+  <a href="{% url 'oauth2_provider:delete' team_pk=team.pk pk=application.pk %}" class="govuk-link">Delete application</a>
 </div>
 {% endblock %}
