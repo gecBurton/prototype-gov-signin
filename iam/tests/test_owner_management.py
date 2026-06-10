@@ -1,28 +1,9 @@
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
-from users.models import Team
 
 User = get_user_model()
 Application = get_application_model()
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def team(db):
-    return Team.objects.create(name="Test Team")
-
-
-@pytest.fixture
-def owner(team):
-    user = User.objects.create_user(username="owner", email="owner@example.com")
-    user.team = team
-    user.save()
-    return user
 
 
 @pytest.fixture
@@ -31,21 +12,6 @@ def co_owner(team):
     user.team = team
     user.save()
     return user
-
-
-@pytest.fixture
-def stranger(db):
-    return User.objects.create_user(username="stranger", email="stranger@example.com")
-
-
-@pytest.fixture
-def app(team):
-    return Application.objects.create(
-        name="Test App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
-        team=team,
-    )
 
 
 # ---------------------------------------------------------------------------

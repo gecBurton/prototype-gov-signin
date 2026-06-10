@@ -1,7 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
-from users.models import Team
 
 User = get_user_model()
 Application = get_application_model()
@@ -15,40 +14,6 @@ _FORM_BASE = {
     "redirect_uris": "http://localhost/callback",
     "algorithm": "RS256",
 }
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def team(db):
-    return Team.objects.create(name="Test Team")
-
-
-@pytest.fixture
-def owner(team):
-    user = User.objects.create_user(username="owner", email="owner@example.com")
-    user.team = team
-    user.save()
-    return user
-
-
-@pytest.fixture
-def stranger(db):
-    return User.objects.create_user(username="stranger", email="stranger@example.com")
-
-
-@pytest.fixture
-def app(owner, team):
-    return Application.objects.create(
-        name="Test App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
-        redirect_uris="http://localhost/callback",
-        team=team,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +46,7 @@ def test_list_access(request, client, user_fixture, expected_status, app):
     assert response.status_code == expected_status
 
 
-def test_list_shows_only_owned_apps(client, owner, stranger, app):
+def test_list_shows_only_team_apps(client, owner, stranger, app):
     client.force_login(owner)
     assert app.name in client.get("/o/applications/").content.decode()
 
@@ -177,6 +142,7 @@ def test_delete_removes_application(client, owner, app):
     "user_fixture,expected_status",
     [
         ("owner", 200),
+        ("stranger", 403),  # no team → forbidden
         (None, 302),
     ],
 )
@@ -256,16 +222,3 @@ def test_registration_redirects_to_detail(client, owner):
     )
     app = Application.objects.get(name="New App")
     assert response["Location"] == f"/o/applications/{app.pk}/"
-
-
-# ---------------------------------------------------------------------------
-# Remove non-owner is a silent no-op
-# ---------------------------------------------------------------------------
-
-
-def test_remove_non_member_is_noop(client, owner, stranger, app):
-    client.force_login(owner)
-    response = client.post(f"/o/applications/{app.pk}/owners/{stranger.pk}/remove/")
-    assert response.status_code == 302
-    stranger.refresh_from_db()
-    assert stranger.team is None
