@@ -3,15 +3,23 @@ import hashlib
 import secrets
 import uuid
 
-from conftest import DEMO_EMAIL, IAM, clear_mailbox, login_to_iam
+from conftest import DEMO_EMAIL, IAM, login_to_iam
 from playwright.sync_api import Page, expect
 
 
+def open_team_page(page: Page, team_name: str) -> None:
+    page.goto(f"{IAM}/o/teams/")
+    page.get_by_role("link", name=team_name).click()
+    page.wait_for_url(f"{IAM}/o/teams/*/")
+
+
 def register_application(
-    page: Page, *, name: str, client_id: str, allowed_email_domains: str = ""
+    page: Page, *, team_name: str, name: str, client_id: str
 ) -> None:
-    """Fill in and submit the application registration form."""
-    page.goto(f"{IAM}/o/applications/register/")
+    """Register an application from the team page."""
+    open_team_page(page, team_name)
+    page.get_by_role("link", name="Register a new application").click()
+    page.wait_for_url(f"{IAM}/o/teams/*/applications/register/")
     page.fill('[name="name"]', name)
     page.fill('[name="client_id"]', client_id)
     page.fill('[name="client_secret"]', secrets.token_urlsafe(24))
@@ -19,10 +27,8 @@ def register_application(
     page.select_option('[name="authorization_grant_type"]', "authorization-code")
     page.fill('[name="redirect_uris"]', "http://localhost/callback")
     page.select_option('[name="algorithm"]', "RS256")
-    if allowed_email_domains:
-        page.fill('[name="allowed_email_domains"]', allowed_email_domains)
     page.get_by_role("button", name="Save").click()
-    page.wait_for_url(f"{IAM}/o/applications/*/")
+    page.wait_for_url(f"{IAM}/o/teams/*/applications/*/")
 
 
 def _pkce_params(client_id: str) -> str:
@@ -42,35 +48,31 @@ def _pkce_params(client_id: str) -> str:
     )
 
 
-def test_register_application(page: Page, fresh_email: str):
+def test_register_application(page: Page, fresh_email: str, team_name: str):
     login_to_iam(page, fresh_email)
 
     client_id = f"e2e-{uuid.uuid4().hex[:8]}"
-    register_application(page, name="My E2E App", client_id=client_id)
+    register_application(
+        page, team_name=team_name, name="My E2E App", client_id=client_id
+    )
 
     # Detail page should show the client ID.
     expect(page.locator("code").first).to_have_text(client_id)
     expect(page.locator("h1")).to_contain_text("My E2E App")
 
 
-def test_add_and_remove_owner(page: Page, fresh_email: str):
+def test_add_and_remove_team_member(page: Page, fresh_email: str, team_name: str):
     login_to_iam(page, fresh_email)
-
-    client_id = f"e2e-{uuid.uuid4().hex[:8]}"
-    register_application(page, name="Shared App", client_id=client_id)
-
-    # Navigate to owner management.
-    page.get_by_role("link", name="Manage owners").click()
-    expect(page.locator("h1")).to_contain_text("Owners of Shared App")
+    open_team_page(page, team_name)
 
     # DEMO_EMAIL is pre-seeded, so it exists and can be added.
     page.get_by_label("Email address").fill(DEMO_EMAIL)
-    page.get_by_role("button", name="Add owner").click()
+    page.get_by_role("button", name="Add team member").click()
     expect(
         page.locator("dt.govuk-summary-list__key", has_text=DEMO_EMAIL)
     ).to_be_visible()
 
-    # Remove the co-owner.
+    # Remove the member again.
     page.get_by_role("button", name=f"Remove {DEMO_EMAIL}").click()
     expect(
         page.locator("dt.govuk-summary-list__key", has_text=DEMO_EMAIL)
@@ -78,17 +80,21 @@ def test_add_and_remove_owner(page: Page, fresh_email: str):
 
 
 def test_domain_restricted_application_blocks_user(
-    page: Page, browser, fresh_email: str
+    page: Page, browser, fresh_email: str, team_name: str
 ):
-    # Owner creates an application restricted to "allowed.com".
+    # A team member creates an application and restricts the team to "allowed.com".
     login_to_iam(page, fresh_email)
     client_id = f"e2e-{uuid.uuid4().hex[:8]}"
     register_application(
-        page,
-        name="Restricted App",
-        client_id=client_id,
-        allowed_email_domains="allowed.com",
+        page, team_name=team_name, name="Restricted App", client_id=client_id
     )
+
+    open_team_page(page, team_name)
+    page.get_by_label("Domain").fill("allowed.com")
+    page.get_by_role("button", name="Add domain").click()
+    expect(
+        page.locator("dt.govuk-summary-list__key", has_text="allowed.com")
+    ).to_be_visible()
 
     # A user with a blocked domain tries to authorize.
     blocked_email = f"e2e-{uuid.uuid4().hex[:8]}@blocked.com"

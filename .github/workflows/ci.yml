@@ -36,3 +36,27 @@ jobs:
           POSTGRES_DB: iam
           POSTGRES_USER: iam
           POSTGRES_PASSWORD: iam
+
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --group integration
+      - run: uv run playwright install --with-deps chromium
+      - name: Generate OIDC signing key
+        run: openssl genrsa -out iam/oidc.key 4096
+      - name: Start services
+        run: docker compose up -d --build
+        env:
+          GOOGLE_CLIENT_ID: ""
+          GOOGLE_CLIENT_SECRET: ""
+      - name: Wait for services
+        run: |
+          timeout 120 sh -c 'until curl -fs http://localhost:8000/ > /dev/null; do sleep 2; done'
+          timeout 120 sh -c 'until curl -fs http://localhost:3000/login > /dev/null; do sleep 2; done'
+      - run: uv run pytest integration_tests/ -v
+      - name: Show service logs
+        if: failure()
+        run: docker compose logs

@@ -1,10 +1,14 @@
 import re
+import subprocess
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 import requests
 from playwright.sync_api import Page
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 GRAFANA = "http://localhost:3000"
 IAM = "http://localhost:8000"
@@ -46,9 +50,52 @@ def login_to_iam(page: Page, email: str) -> None:
     page.wait_for_url(f"{IAM}/**")
 
 
+def create_team(name: str, *member_emails: str) -> None:
+    """Create a team with the given members directly in the app's database.
+
+    There is no UI for creating teams, so this shells into the running
+    iam container (requires `make up`).
+    """
+    lines = [
+        "from django.contrib.auth import get_user_model",
+        "from users.models import Team",
+        f"team = Team.objects.create(name={name!r})",
+    ]
+    for email in member_emails:
+        lines += [
+            f"user, _ = get_user_model().objects.get_or_create(email={email!r})",
+            "user.teams.add(team)",
+        ]
+    subprocess.run(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "iam",
+            "sh",
+            "-c",
+            "cd iam && uv run python manage.py shell",
+        ],
+        input="\n".join(lines),
+        text=True,
+        check=True,
+        capture_output=True,
+        cwd=REPO_ROOT,
+    )
+
+
 @pytest.fixture
 def fresh_email():
     return f"e2e-{uuid.uuid4().hex[:8]}@example.com"
+
+
+@pytest.fixture
+def team_name(fresh_email):
+    """A team that the fresh_email user belongs to."""
+    name = f"e2e-team-{uuid.uuid4().hex[:8]}"
+    create_team(name, fresh_email)
+    return name
 
 
 @pytest.fixture(autouse=True)

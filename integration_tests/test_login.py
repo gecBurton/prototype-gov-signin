@@ -19,9 +19,9 @@ def test_grafana_login_via_iam(page: Page):
     # 2. Grafana → IAM /o/authorize/ → IAM /accounts/login/
     page.wait_for_url(f"{IAM}/accounts/login/**")
 
-    # 3. Click "Send me a sign-in code" — this navigates to /accounts/login/code/
+    # 3. Click the email-code link — this navigates to /accounts/login/code/
     #    with the next param preserved in the URL
-    page.get_by_role("link", name="Send me a sign-in code").click()
+    page.get_by_role("link", name="Sign in with a code by email instead").click()
     page.wait_for_url(f"{IAM}/accounts/login/code/**")
     page.get_by_label("Email").fill(DEMO_EMAIL)
     page.get_by_role("button", name="Request Code").click()
@@ -45,7 +45,7 @@ def test_new_user_auto_enrols_via_grafana(page: Page, fresh_email: str):
     page.goto(f"{GRAFANA}/login")
     page.get_by_text("Sign in with IAM").click()
     page.wait_for_url(f"{IAM}/accounts/login/**")
-    page.get_by_role("link", name="Send me a sign-in code").click()
+    page.get_by_role("link", name="Sign in with a code by email instead").click()
     page.wait_for_url(f"{IAM}/accounts/login/code/**")
     page.get_by_label("Email").fill(fresh_email)
     page.get_by_role("button", name="Request Code").click()
@@ -76,7 +76,7 @@ def test_logout_via_grafana_lands_on_iam(page: Page, fresh_email: str):
     page.goto(f"{GRAFANA}/login")
     page.get_by_text("Sign in with IAM").click()
     page.wait_for_url(f"{IAM}/accounts/login/**")
-    page.get_by_role("link", name="Send me a sign-in code").click()
+    page.get_by_role("link", name="Sign in with a code by email instead").click()
     page.wait_for_url(f"{IAM}/accounts/login/code/**")
     page.get_by_label("Email").fill(fresh_email)
     page.get_by_role("button", name="Request Code").click()
@@ -97,5 +97,5 @@ def test_logout_via_grafana_lands_on_iam(page: Page, fresh_email: str):
         page.wait_for_url(f"{IAM}/**")
 
     # Protected IAM pages should now require re-authentication.
-    page.goto(f"{IAM}/o/applications/")
+    page.goto(f"{IAM}/o/teams/")
     page.wait_for_url(f"{IAM}/accounts/login/**")

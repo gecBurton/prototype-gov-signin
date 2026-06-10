@@ -183,6 +183,10 @@ if os.environ.get("GOVUK_NOTIFY_API_KEY"):
     GOVUK_NOTIFY_PLAIN_EMAIL_TEMPLATE_ID = os.environ.get(
         "GOVUK_NOTIFY_PLAIN_EMAIL_TEMPLATE_ID"
     )
+elif os.environ.get("EMAIL_HOST"):
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = os.environ["EMAIL_HOST"]
+    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
