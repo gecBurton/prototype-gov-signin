@@ -6,151 +6,112 @@ User = get_user_model()
 Application = get_application_model()
 
 
+@pytest.fixture
+def co_owner(team):
+    user = User.objects.create_user(username="co_owner", email="co-owner@example.com")
+    user.team = team
+    user.save()
+    return user
+
+
 # ---------------------------------------------------------------------------
-# Fixtures
+# Access control — GET and POST to per-app owner endpoints
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def owner(db):
-    return User.objects.create_user(username="owner", email="owner@example.com")
-
-
-@pytest.fixture
-def co_owner(db):
-    return User.objects.create_user(username="co_owner", email="co-owner@example.com")
-
-
-@pytest.fixture
-def stranger(db):
-    return User.objects.create_user(username="stranger", email="stranger@example.com")
-
-
-@pytest.fixture
-def app(owner, co_owner):
-    application = Application.objects.create(
-        name="Test App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+@pytest.mark.parametrize(
+    "authed_client,expected_status",
+    [("owner", 200), ("stranger", 404), (None, 302)],
+    indirect=["authed_client"],
+)
+def test_owners_page_access(authed_client, expected_status, app):
+    assert (
+        authed_client.get(f"/o/applications/{app.pk}/owners/").status_code
+        == expected_status
     )
-    application.owners.set([owner, co_owner])
-    return application
-
-
-# ---------------------------------------------------------------------------
-# Access control
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("owner", 200),
-        ("stranger", 404),
-        (None, 302),  # unauthenticated → redirect to login
-    ],
+    "authed_client,expected_status",
+    [("stranger", 404), (None, 302)],
+    indirect=["authed_client"],
 )
-def test_owners_page_access(request, client, user_fixture, expected_status, app):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get(f"/o/applications/{app.pk}/owners/")
-    assert response.status_code == expected_status
-
-
 @pytest.mark.parametrize(
-    "user_fixture,expected_status",
+    "suffix",
     [
-        ("stranger", 404),
-        (None, 302),
+        pytest.param("owners/", id="add"),
+        pytest.param(
+            "owners/00000000-0000-0000-0000-000000000000/remove/", id="remove"
+        ),
     ],
 )
-def test_add_owner_requires_ownership(
-    request, client, user_fixture, expected_status, app, co_owner
+def test_owner_endpoint_blocked_for_non_member(
+    authed_client, expected_status, suffix, app
 ):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.post(
-        f"/o/applications/{app.pk}/owners/",
-        {"email": co_owner.email},
+    assert (
+        authed_client.post(f"/o/applications/{app.pk}/{suffix}").status_code
+        == expected_status
     )
-    assert response.status_code == expected_status
-
-
-@pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("stranger", 404),
-        (None, 302),
-    ],
-)
-def test_remove_owner_requires_ownership(
-    request, client, user_fixture, expected_status, app, co_owner
-):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.post(f"/o/applications/{app.pk}/owners/{co_owner.pk}/remove/")
-    assert response.status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
-# Adding owners
+# Adding team members
 # ---------------------------------------------------------------------------
 
 
-def test_add_owner_success(client, owner, stranger, app):
+def test_add_member_success(client, owner, stranger, app):
     client.force_login(owner)
     response = client.post(
-        f"/o/applications/{app.pk}/owners/",
-        {"email": stranger.email},
+        f"/o/applications/{app.pk}/owners/", {"email": stranger.email}
     )
     assert response.status_code == 302
-    assert app.owners.filter(pk=stranger.pk).exists()
+    stranger.refresh_from_db()
+    assert stranger.team_id == app.team_id
 
 
 @pytest.mark.parametrize(
     "email,error_fragment",
     [
         ("nobody@example.com", "No user found with email nobody@example.com"),
-        ("owner@example.com", "owner@example.com is already an owner"),
+        ("owner@example.com", "owner@example.com is already a team member"),
     ],
 )
-def test_add_owner_validation(client, owner, app, email, error_fragment):
+def test_add_member_validation(client, owner, app, email, error_fragment):
     client.force_login(owner)
     response = client.post(f"/o/applications/{app.pk}/owners/", {"email": email})
     assert response.status_code == 200
     assert error_fragment in response.content.decode()
-    assert app.owners.count() == 2  # unchanged
 
 
 # ---------------------------------------------------------------------------
-# Removing owners
+# Removing team members
 # ---------------------------------------------------------------------------
 
 
-def test_remove_owner_success(client, owner, co_owner, app):
+def test_remove_member_success(client, owner, co_owner, app):
     client.force_login(owner)
-    response = client.post(f"/o/applications/{app.pk}/owners/{co_owner.pk}/remove/")
-    assert response.status_code == 302
-    assert not app.owners.filter(pk=co_owner.pk).exists()
-    assert app.owners.filter(pk=owner.pk).exists()
+    assert (
+        client.post(
+            f"/o/applications/{app.pk}/owners/{co_owner.pk}/remove/"
+        ).status_code
+        == 302
+    )
+    co_owner.refresh_from_db()
+    assert co_owner.team is None
 
 
-def test_remove_last_owner_blocked(client, owner, app):
-    app.owners.set([owner])
+def test_remove_member_invalid_user_pk(client, owner, app):
     client.force_login(owner)
-    response = client.post(f"/o/applications/{app.pk}/owners/{owner.pk}/remove/")
-    assert response.status_code == 302
-    assert app.owners.count() == 1
+    assert (
+        client.post(
+            f"/o/applications/{app.pk}/owners/00000000-0000-0000-0000-000000000000/remove/"
+        ).status_code
+        == 404
+    )
 
 
-def test_remove_last_owner_redirects_to_owners_page(client, owner, app):
-    app.owners.set([owner])
+def test_remove_non_member_is_noop(client, owner, stranger, app):
     client.force_login(owner)
-    response = client.post(f"/o/applications/{app.pk}/owners/{owner.pk}/remove/")
-    assert response["Location"] == f"/o/applications/{app.pk}/owners/"
-
-
-def test_remove_owner_invalid_user_pk(client, owner, app):
-    client.force_login(owner)
-    response = client.post(f"/o/applications/{app.pk}/owners/99999/remove/")
-    assert response.status_code == 404
+    client.post(f"/o/applications/{app.pk}/owners/{stranger.pk}/remove/")
+    stranger.refresh_from_db()
+    assert stranger.team is None

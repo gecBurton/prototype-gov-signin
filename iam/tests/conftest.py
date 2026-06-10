@@ -4,6 +4,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
+from users.models import Team
 
 Application = get_application_model()
 
@@ -28,7 +29,6 @@ def configure_settings():
 
 @pytest.fixture(scope="session")
 def demo_user(django_db_setup, django_db_blocker):
-
     User = get_user_model()
     with django_db_blocker.unblock():
         user, _ = User.objects.get_or_create(
@@ -42,7 +42,6 @@ def demo_user(django_db_setup, django_db_blocker):
 
 @pytest.fixture(scope="session")
 def oauth_app(django_db_setup, django_db_blocker):
-
     with django_db_blocker.unblock():
         app, _ = Application.objects.update_or_create(
             client_id=CLIENT_ID,
@@ -57,3 +56,47 @@ def oauth_app(django_db_setup, django_db_blocker):
             },
         )
     return app
+
+
+# ---------------------------------------------------------------------------
+# Shared per-test fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def authed_client(request, client, db):
+    """Parametrize with a fixture name string to get a logged-in client, or None for anonymous."""
+    if request.param:
+        client.force_login(request.getfixturevalue(request.param))
+    return client
+
+
+@pytest.fixture
+def team(db):
+    return Team.objects.create(name="Test Team")
+
+
+@pytest.fixture
+def owner(team):
+    User = get_user_model()
+    user = User.objects.create_user(username="owner", email="owner@example.com")
+    user.team = team
+    user.save()
+    return user
+
+
+@pytest.fixture
+def stranger(db):
+    User = get_user_model()
+    return User.objects.create_user(username="stranger", email="stranger@example.com")
+
+
+@pytest.fixture
+def app(owner, team):
+    return Application.objects.create(
+        name="Test App",
+        client_type=Application.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="http://localhost/callback",
+        team=team,
+    )

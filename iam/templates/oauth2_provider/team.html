@@ -1,0 +1,65 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Team{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">Team</h1>
+
+{% if team %}
+
+  <p class="govuk-body">{{ team.name }}</p>
+
+  {% if error %}
+  <div class="govuk-error-summary" data-module="govuk-error-summary">
+    <div role="alert">
+      <h2 class="govuk-error-summary__title">There is a problem</h2>
+      <div class="govuk-error-summary__body">
+        <ul class="govuk-list govuk-error-summary__list">
+          <li><a href="#email">{{ error }}</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <dl class="govuk-summary-list">
+    {% for member in team.members.all %}
+    <div class="govuk-summary-list__row">
+      <dt class="govuk-summary-list__key">{{ member.email }}</dt>
+      <dd class="govuk-summary-list__actions">
+        <form method="post" action="{% url 'oauth2_provider:remove-team-member' user_pk=member.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="govuk-link" style="background:none;border:0;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">
+            Remove<span class="govuk-visually-hidden"> {{ member.email }}</span>
+          </button>
+        </form>
+      </dd>
+    </div>
+    {% endfor %}
+  </dl>
+
+  <h2 class="govuk-heading-m">Add team member</h2>
+
+  <form method="post" action="{% url 'oauth2_provider:team' %}">
+    {% csrf_token %}
+    <div class="govuk-form-group{% if error %} govuk-form-group--error{% endif %}">
+      <label class="govuk-label" for="email">Email address</label>
+      {% if error %}
+      <p class="govuk-error-message" id="email-error">
+        <span class="govuk-visually-hidden">Error:</span> {{ error }}
+      </p>
+      {% endif %}
+      <input class="govuk-input{% if error %} govuk-input--error{% endif %}" type="email" name="email" id="email" autocomplete="email" required>
+    </div>
+    <button class="govuk-button" data-module="govuk-button">Add team member</button>
+  </form>
+
+{% else %}
+
+  <div class="govuk-inset-text">
+    <p class="govuk-body">You are not a member of any team.</p>
+    <p class="govuk-body">To register and manage applications, ask an existing team member to add you to their team.</p>
+  </div>
+
+{% endif %}
+{% endblock %}
