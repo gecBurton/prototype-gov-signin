@@ -1,18 +1,32 @@
-from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from oauth2_provider.models import AbstractApplication
 
 
+class Team(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
 class User(AbstractUser):
-    pass
+    team = models.ForeignKey(
+        Team,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="members",
+    )
 
 
 class Application(AbstractApplication):
-    owners = models.ManyToManyField(
-        settings.AUTH_USER_MODEL,
+    team = models.ForeignKey(
+        Team,
+        null=True,
         blank=True,
-        related_name="owned_applications",
+        on_delete=models.SET_NULL,
+        related_name="applications",
     )
     allowed_email_domains = models.TextField(
         blank=True,

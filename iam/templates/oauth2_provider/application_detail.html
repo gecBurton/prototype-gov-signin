@@ -40,7 +40,6 @@
 
 <div class="govuk-button-group">
   <a href="{% url 'oauth2_provider:update' application.pk %}" class="govuk-button">Edit</a>
-  <a href="{% url 'oauth2_provider:owners' application.pk %}" class="govuk-button govuk-button--secondary">Manage owners</a>
   <a href="{% url 'oauth2_provider:delete' application.pk %}" class="govuk-link">Delete application</a>
 </div>
 {% endblock %}

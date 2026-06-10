@@ -5,32 +5,26 @@
 {% block inner_content %}
 <h1 class="govuk-heading-l">Your applications</h1>
 
-{% if applications %}
-  <dl class="govuk-summary-list">
-    {% for application in applications %}
-    <div class="govuk-summary-list__row">
-      <dt class="govuk-summary-list__key">
-        <a class="govuk-link" href="{% url 'oauth2_provider:detail' application.pk %}">{{ application.name }}</a>
-      </dt>
-      <dd class="govuk-summary-list__actions">
-        <ul class="govuk-summary-list__actions-list">
-          <li class="govuk-summary-list__actions-list-item">
-            <a class="govuk-link" href="{% url 'oauth2_provider:update' application.pk %}">Edit</a>
-          </li>
-          <li class="govuk-summary-list__actions-list-item">
-            <a class="govuk-link" href="{% url 'oauth2_provider:owners' application.pk %}">Owners</a>
-          </li>
-          <li class="govuk-summary-list__actions-list-item">
-            <a class="govuk-link" href="{% url 'oauth2_provider:delete' application.pk %}">Delete</a>
-          </li>
-        </ul>
-      </dd>
-    </div>
-    {% endfor %}
-  </dl>
-{% else %}
-  <p class="govuk-body">You have no applications registered.</p>
-{% endif %}
+{% if request.user.team %}
 
-<a href="{% url 'oauth2_provider:register' %}" class="govuk-button" data-module="govuk-button">Register a new application</a>
+  {% if applications %}
+    <ul class="govuk-list">
+      {% for application in applications %}
+      <li><a class="govuk-link" href="{% url 'oauth2_provider:detail' application.pk %}">{{ application.name }}</a></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="govuk-body">Your team has no applications registered yet.</p>
+  {% endif %}
+
+  <a href="{% url 'oauth2_provider:register' %}" class="govuk-button" data-module="govuk-button">Register a new application</a>
+
+{% else %}
+
+  <div class="govuk-inset-text">
+    <p class="govuk-body">You are not a member of any team.</p>
+    <p class="govuk-body">To register and manage applications, ask an existing team member to add you to their team.</p>
+  </div>
+
+{% endif %}
 {% endblock %}

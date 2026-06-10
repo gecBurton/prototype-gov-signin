@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
+from users.models import Team
 
 User = get_user_model()
 Application = get_application_model()
@@ -22,8 +23,16 @@ _FORM_BASE = {
 
 
 @pytest.fixture
-def owner(db):
-    return User.objects.create_user(username="owner", email="owner@example.com")
+def team(db):
+    return Team.objects.create(name="Test Team")
+
+
+@pytest.fixture
+def owner(team):
+    user = User.objects.create_user(username="owner", email="owner@example.com")
+    user.team = team
+    user.save()
+    return user
 
 
 @pytest.fixture
@@ -32,15 +41,14 @@ def stranger(db):
 
 
 @pytest.fixture
-def app(owner):
-    application = Application.objects.create(
+def app(owner, team):
+    return Application.objects.create(
         name="Test App",
         client_type=Application.CLIENT_CONFIDENTIAL,
         authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
         redirect_uris="http://localhost/callback",
+        team=team,
     )
-    application.owners.set([owner])
-    return application
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +187,7 @@ def test_registration_page_access(request, client, user_fixture, expected_status
     assert response.status_code == expected_status
 
 
-def test_registration_adds_creator_as_owner(client, owner):
+def test_registration_assigns_creators_team(client, owner):
     client.force_login(owner)
     response = client.post(
         "/o/applications/register/",
@@ -187,7 +195,7 @@ def test_registration_adds_creator_as_owner(client, owner):
     )
     assert response.status_code == 302
     app = Application.objects.get(name="New App")
-    assert app.owners.filter(pk=owner.pk).exists()
+    assert app.team_id == owner.team_id
 
 
 # ---------------------------------------------------------------------------
@@ -255,8 +263,9 @@ def test_registration_redirects_to_detail(client, owner):
 # ---------------------------------------------------------------------------
 
 
-def test_remove_nonowner_is_noop(client, owner, stranger, app):
+def test_remove_non_member_is_noop(client, owner, stranger, app):
     client.force_login(owner)
     response = client.post(f"/o/applications/{app.pk}/owners/{stranger.pk}/remove/")
     assert response.status_code == 302
-    assert app.owners.count() == 1
+    stranger.refresh_from_db()
+    assert stranger.team is None

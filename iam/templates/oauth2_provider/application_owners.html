@@ -1,11 +1,11 @@
 {% extends "oauth2_provider/base.html" %}
 
-{% block title %}Owners – {{ application.name }}{% endblock %}
+{% block title %}Team – {{ application.name }}{% endblock %}
 
 {% block inner_content %}
 <a href="{% url 'oauth2_provider:detail' pk=application.pk %}" class="govuk-back-link">Back</a>
 
-<h1 class="govuk-heading-l">Owners of {{ application.name }}</h1>
+<h1 class="govuk-heading-l">Team for {{ application.name }}</h1>
 
 {% if error %}
 <div class="govuk-error-summary" data-module="govuk-error-summary">
@@ -21,14 +21,14 @@
 {% endif %}
 
 <dl class="govuk-summary-list">
-  {% for owner in application.owners.all %}
+  {% for member in application.team.members.all %}
   <div class="govuk-summary-list__row">
-    <dt class="govuk-summary-list__key">{{ owner.email }}</dt>
+    <dt class="govuk-summary-list__key">{{ member.email }}</dt>
     <dd class="govuk-summary-list__actions">
-      <form method="post" action="{% url 'oauth2_provider:remove-owner' pk=application.pk user_pk=owner.pk %}">
+      <form method="post" action="{% url 'oauth2_provider:remove-owner' pk=application.pk user_pk=member.pk %}">
         {% csrf_token %}
         <button type="submit" class="govuk-link" style="background:none;border:0;cursor:pointer;font-family:inherit;font-size:inherit;padding:0">
-          Remove<span class="govuk-visually-hidden"> {{ owner.email }}</span>
+          Remove<span class="govuk-visually-hidden"> {{ member.email }}</span>
         </button>
       </form>
     </dd>
@@ -36,7 +36,7 @@
   {% endfor %}
 </dl>
 
-<h2 class="govuk-heading-m">Add owner</h2>
+<h2 class="govuk-heading-m">Add team member</h2>
 
 <form method="post" action="{% url 'oauth2_provider:owners' pk=application.pk %}">
   {% csrf_token %}
@@ -49,6 +49,6 @@
     {% endif %}
     <input class="govuk-input{% if error %} govuk-input--error{% endif %}" type="email" name="email" id="email" autocomplete="email" required>
   </div>
-  <button class="govuk-button" data-module="govuk-button">Add owner</button>
+  <button class="govuk-button" data-module="govuk-button">Add team member</button>
 </form>
 {% endblock %}

@@ -11,6 +11,8 @@ from users.views import (
     ApplicationRegistration,
     ApplicationUpdate,
     AuthorizationView,
+    TeamManage,
+    TeamMemberRemove,
 )
 
 management_urlpatterns = [
@@ -28,6 +30,12 @@ management_urlpatterns = [
         "applications/<slug:pk>/owners/<int:user_pk>/remove/",
         ApplicationOwnerRemove.as_view(),
         name="remove-owner",
+    ),
+    path("team/", TeamManage.as_view(), name="team"),
+    path(
+        "team/<int:user_pk>/remove/",
+        TeamMemberRemove.as_view(),
+        name="remove-team-member",
     ),
 ]
 
