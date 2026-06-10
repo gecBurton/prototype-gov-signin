@@ -196,6 +196,19 @@ wheels = [
 ]
 
 [[package]]
+name = "django-gov-notify"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "notifications-python-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/85/b193b53e8f23c442aadfd96f595fb1c46fea83f258c217f32c9391caac5f/django_gov_notify-0.7.0.tar.gz", hash = "sha256:86ba75d4c7b112bd6f6ff73a16b1768ddfa93900bfb9759b9e74286edcb6c51d", size = 5337, upload-time = "2026-05-13T11:59:09.161Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/d2/b632a7461a5d107ab1a393e9f4105067f3efeac34a52f82c4c3de05cdea1/django_gov_notify-0.7.0-py3-none-any.whl", hash = "sha256:02312ebfe337c6276ae5a721142f41e640cf576059b9b549cdcdda0e051df4f8", size = 6846, upload-time = "2026-05-13T11:59:08.093Z" },
+]
+
+[[package]]
 name = "django-oauth-toolkit"
 version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -209,6 +222,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/62/2b/011f3e964f474b781
 wheels = [
     { url = "https://files.pythonhosted.org/packages/26/e4/d05b3d50d0250f2d2f3a5dc9cd21f85e313ee1493ff60b729dccb8e08c46/django_oauth_toolkit-3.3.0-py3-none-any.whl", hash = "sha256:7af1365cd80735211454b0dca810bc9e860c631e61fd17768ad0fa331737954f", size = 88415, upload-time = "2026-05-29T18:13:55.827Z" },
 ]
+
+[[package]]
+name = "docopt"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901, upload-time = "2014-06-16T11:18:57.406Z" }
 
 [[package]]
 name = "greenlet"
@@ -301,6 +320,19 @@ wheels = [
 ]
 
 [[package]]
+name = "notifications-python-client"
+version = "8.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docopt" },
+    { name = "pyjwt" },
+    { name = "requests" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/f3/34495f990cfc729ed98f0dc13b3000a120941cb2d4698104801f19ab74fb/notifications_python_client-8.2.0-py3-none-any.whl", hash = "sha256:8cd8bd01ae603a972a5413c430ca42b16f6481f37d98406c3e9b68c1c192f59e", size = 9343, upload-time = "2023-12-28T12:58:35.683Z" },
+]
+
+[[package]]
 name = "oauthlib"
 version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -354,6 +386,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "dj-database-url" },
     { name = "django-allauth" },
+    { name = "django-gov-notify" },
     { name = "django-oauth-toolkit" },
     { name = "gunicorn" },
     { name = "psycopg", extra = ["binary"] },
@@ -378,6 +411,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=48.0.0" },
     { name = "dj-database-url", specifier = ">=3.1.2" },
     { name = "django-allauth", specifier = ">=65.18.0" },
+    { name = "django-gov-notify", specifier = ">=0.7.0" },
     { name = "django-oauth-toolkit", specifier = ">=3.3.0" },
     { name = "gunicorn", specifier = ">=26.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
