@@ -10,6 +10,7 @@ class Team(models.Model):
         return self.name
 
 
+
 class User(AbstractUser):
     team = models.ForeignKey(
         Team,

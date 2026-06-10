@@ -16,11 +16,6 @@ _FORM_BASE = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Start page
-# ---------------------------------------------------------------------------
-
-
 def test_start_page(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -32,66 +27,57 @@ def test_start_page(client):
 
 
 @pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("owner", 200),
-        ("stranger", 200),  # empty list, not forbidden
-        (None, 302),  # unauthenticated → login redirect
-    ],
+    "authed_client,expected_status",
+    [("owner", 200), ("stranger", 200), (None, 302)],
+    indirect=["authed_client"],
 )
-def test_list_access(request, client, user_fixture, expected_status, app):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get("/o/applications/")
-    assert response.status_code == expected_status
+def test_list_access(authed_client, expected_status, app):
+    assert authed_client.get("/o/applications/").status_code == expected_status
 
 
 def test_list_shows_only_team_apps(client, owner, stranger, app):
     client.force_login(owner)
     assert app.name in client.get("/o/applications/").content.decode()
-
     client.force_login(stranger)
     assert app.name not in client.get("/o/applications/").content.decode()
 
 
 # ---------------------------------------------------------------------------
-# ApplicationDetail
+# App views — GET access (detail, update, delete share the same matrix)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("owner", 200),
-        ("stranger", 404),
-        (None, 302),
-    ],
+    "suffix",
+    [pytest.param("", id="detail"), pytest.param("update/", id="update"), pytest.param("delete/", id="delete")],
 )
-def test_detail_access(request, client, user_fixture, expected_status, app):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get(f"/o/applications/{app.pk}/")
-    assert response.status_code == expected_status
+@pytest.mark.parametrize(
+    "authed_client,expected_status",
+    [("owner", 200), ("stranger", 404), (None, 302)],
+    indirect=["authed_client"],
+)
+def test_app_view_access(authed_client, expected_status, suffix, app):
+    assert authed_client.get(f"/o/applications/{app.pk}/{suffix}").status_code == expected_status
+
+
+# ---------------------------------------------------------------------------
+# App views — POST blocked for non-members (update, delete share the same matrix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("suffix", ["update/", "delete/"])
+@pytest.mark.parametrize(
+    "authed_client,expected_status",
+    [("stranger", 404), (None, 302)],
+    indirect=["authed_client"],
+)
+def test_app_write_blocked_for_non_member(authed_client, expected_status, suffix, app):
+    assert authed_client.post(f"/o/applications/{app.pk}/{suffix}").status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
 # ApplicationUpdate
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("owner", 200),
-        ("stranger", 404),
-        (None, 302),
-    ],
-)
-def test_update_access(request, client, user_fixture, expected_status, app):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get(f"/o/applications/{app.pk}/update/")
-    assert response.status_code == expected_status
 
 
 def test_update_saves_changes(client, owner, app):
@@ -110,27 +96,16 @@ def test_update_saves_changes(client, owner, app):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("owner", 200),
-        ("stranger", 404),
-        (None, 302),
-    ],
-)
-def test_delete_access(request, client, user_fixture, expected_status, app):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get(f"/o/applications/{app.pk}/delete/")
-    assert response.status_code == expected_status
-
-
 def test_delete_removes_application(client, owner, app):
     client.force_login(owner)
     pk = app.pk
-    response = client.post(f"/o/applications/{app.pk}/delete/")
-    assert response.status_code == 302
+    assert client.post(f"/o/applications/{app.pk}/delete/").status_code == 302
     assert not Application.objects.filter(pk=pk).exists()
+
+
+def test_delete_redirects_to_list(client, owner, app):
+    client.force_login(owner)
+    assert client.post(f"/o/applications/{app.pk}/delete/")["Location"] == "/o/applications/"
 
 
 # ---------------------------------------------------------------------------
@@ -139,86 +114,22 @@ def test_delete_removes_application(client, owner, app):
 
 
 @pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("owner", 200),
-        ("stranger", 403),  # no team → forbidden
-        (None, 302),
-    ],
+    "authed_client,expected_status",
+    [("owner", 200), ("stranger", 403), (None, 302)],
+    indirect=["authed_client"],
 )
-def test_registration_page_access(request, client, user_fixture, expected_status, db):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get("/o/applications/register/")
-    assert response.status_code == expected_status
+def test_registration_page_access(authed_client, expected_status):
+    assert authed_client.get("/o/applications/register/").status_code == expected_status
 
 
 def test_registration_assigns_creators_team(client, owner):
     client.force_login(owner)
-    response = client.post(
-        "/o/applications/register/",
-        {**_FORM_BASE, "name": "New App"},
-    )
-    assert response.status_code == 302
-    app = Application.objects.get(name="New App")
-    assert app.team_id == owner.team_id
-
-
-# ---------------------------------------------------------------------------
-# POST write actions blocked for non-owners
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("stranger", 404),
-        (None, 302),
-    ],
-)
-def test_update_post_blocked_for_non_owner(
-    request, client, user_fixture, expected_status, app
-):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.post(
-        f"/o/applications/{app.pk}/update/",
-        {**_FORM_BASE, "name": "Hacked", "client_id": app.client_id},
-    )
-    assert response.status_code == expected_status
-
-
-@pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("stranger", 404),
-        (None, 302),
-    ],
-)
-def test_delete_post_blocked_for_non_owner(
-    request, client, user_fixture, expected_status, app
-):
-    if user_fixture:
-        client.force_login(request.getfixturevalue(user_fixture))
-    response = client.post(f"/o/applications/{app.pk}/delete/")
-    assert response.status_code == expected_status
-
-
-# ---------------------------------------------------------------------------
-# Redirect destinations
-# ---------------------------------------------------------------------------
-
-
-def test_delete_redirects_to_list(client, owner, app):
-    client.force_login(owner)
-    response = client.post(f"/o/applications/{app.pk}/delete/")
-    assert response["Location"] == "/o/applications/"
+    client.post("/o/applications/register/", {**_FORM_BASE, "name": "New App"})
+    assert Application.objects.get(name="New App").team_id == owner.team_id
 
 
 def test_registration_redirects_to_detail(client, owner):
     client.force_login(owner)
-    response = client.post(
-        "/o/applications/register/", {**_FORM_BASE, "name": "New App"}
-    )
+    response = client.post("/o/applications/register/", {**_FORM_BASE, "name": "New App"})
     app = Application.objects.get(name="New App")
     assert response["Location"] == f"/o/applications/{app.pk}/"

@@ -64,6 +64,14 @@ def oauth_app(django_db_setup, django_db_blocker):
 
 
 @pytest.fixture
+def authed_client(request, client, db):
+    """Parametrize with a fixture name string to get a logged-in client, or None for anonymous."""
+    if request.param:
+        client.force_login(request.getfixturevalue(request.param))
+    return client
+
+
+@pytest.fixture
 def team(db):
     return Team.objects.create(name="Test Team")
 
