@@ -25,12 +25,22 @@ _APPLICATION_FORM_FIELDS = (
 )
 
 
-class TeamApplicationMixin(LoginRequiredMixin):
-    """Scope application views to the team in the URL, 404ing for non-members."""
+class TeamMixin(LoginRequiredMixin):
+    """Resolve the team from the URL, 404ing for non-members."""
+
+    team_url_kwarg = "pk"
 
     @cached_property
     def team(self):
-        return get_object_or_404(self.request.user.teams, pk=self.kwargs["team_pk"])
+        return get_object_or_404(
+            self.request.user.teams, pk=self.kwargs[self.team_url_kwarg]
+        )
+
+
+class TeamApplicationMixin(TeamMixin):
+    """Scope application views to the team in the URL."""
+
+    team_url_kwarg = "team_pk"
 
     def get_queryset(self):
         return get_application_model().objects.filter(team=self.team)
@@ -39,38 +49,31 @@ class TeamApplicationMixin(LoginRequiredMixin):
         return super().get_context_data(team=self.team, **kwargs)
 
 
-class ApplicationRegistration(TeamApplicationMixin, base_views.ApplicationRegistration):
+class ApplicationFormMixin(TeamApplicationMixin):
     def get_form_class(self):
         return modelform_factory(
             get_application_model(), fields=_APPLICATION_FORM_FIELDS
         )
-
-    def form_valid(self, form):
-        form.instance.team = self.team
-        return super().form_valid(form)
 
     def get_success_url(self):
         return reverse(
             "oauth2_provider:detail",
             kwargs={"team_pk": self.team.pk, "pk": self.object.pk},
         )
+
+
+class ApplicationRegistration(ApplicationFormMixin, base_views.ApplicationRegistration):
+    def form_valid(self, form):
+        form.instance.team = self.team
+        return super().form_valid(form)
 
 
 class ApplicationDetail(TeamApplicationMixin, base_views.ApplicationDetail):
     pass
 
 
-class ApplicationUpdate(TeamApplicationMixin, base_views.ApplicationUpdate):
-    def get_form_class(self):
-        return modelform_factory(
-            get_application_model(), fields=_APPLICATION_FORM_FIELDS
-        )
-
-    def get_success_url(self):
-        return reverse(
-            "oauth2_provider:detail",
-            kwargs={"team_pk": self.team.pk, "pk": self.object.pk},
-        )
+class ApplicationUpdate(ApplicationFormMixin, base_views.ApplicationUpdate):
+    pass
 
 
 class ApplicationDelete(TeamApplicationMixin, base_views.ApplicationDelete):
@@ -86,69 +89,60 @@ class TeamList(LoginRequiredMixin, ListView):
         return self.request.user.teams.all()
 
 
-class TeamDetail(LoginRequiredMixin, View):
+class TeamDetail(TeamMixin, View):
     template_name = "oauth2_provider/team_detail.html"
 
-    def _get_team(self, request):
-        return get_object_or_404(request.user.teams, pk=self.kwargs["pk"])
-
-    def _render(self, request, team, error=None):
-        return render(request, self.template_name, {"team": team, "error": error})
+    def _render(self, request, error=None):
+        return render(request, self.template_name, {"team": self.team, "error": error})
 
     def get(self, request, *args, **kwargs):
-        return self._render(request, self._get_team(request))
+        return self._render(request)
 
     def post(self, request, *args, **kwargs):
-        team = self._get_team(request)
         email = request.POST.get("email", "").strip()
         User = get_user_model()
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return self._render(
-                request, team, error=f"No user found with email {email}."
-            )
-        if user.teams.filter(pk=team.pk).exists():
-            return self._render(
-                request, team, error=f"{email} is already a team member."
-            )
-        user.teams.add(team)
-        return redirect("oauth2_provider:team", pk=team.pk)
+            return self._render(request, error=f"No user found with email {email}.")
+        if user.teams.filter(pk=self.team.pk).exists():
+            return self._render(request, error=f"{email} is already a team member.")
+        user.teams.add(self.team)
+        return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
-class TeamMemberRemove(LoginRequiredMixin, View):
+class TeamMemberRemove(TeamMixin, View):
     def post(self, request, *args, **kwargs):
-        team = get_object_or_404(request.user.teams, pk=kwargs["pk"])
         user_to_remove = get_object_or_404(get_user_model(), pk=kwargs["user_pk"])
-        user_to_remove.teams.remove(team)
-        return redirect("oauth2_provider:team", pk=team.pk)
+        user_to_remove.teams.remove(self.team)
+        return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
-class TeamDomainAdd(LoginRequiredMixin, View):
+class TeamDomainAdd(TeamMixin, View):
     def post(self, request, *args, **kwargs):
-        team = get_object_or_404(request.user.teams, pk=kwargs["pk"])
         domain = request.POST.get("domain", "").strip().lower()
         if not domain:
             error = "Enter a domain."
         elif "." not in domain:
             error = f"{domain} is too broad. Enter a full domain, like cabinetoffice.gov.uk."
-        elif team.allowed_email_domains.filter(domain=domain).exists():
+        elif self.team.allowed_email_domains.filter(domain=domain).exists():
             error = f"{domain} is already allowed."
         else:
-            team.allowed_email_domains.create(domain=domain)
-            return redirect("oauth2_provider:team", pk=team.pk)
+            self.team.allowed_email_domains.create(domain=domain)
+            return redirect("oauth2_provider:team", pk=self.team.pk)
         return render(
             request,
             "oauth2_provider/team_detail.html",
-            {"team": team, "domain_error": error},
+            {"team": self.team, "domain_error": error},
         )
 
 
-class TeamDomainRemove(LoginRequiredMixin, View):
+class TeamDomainRemove(TeamMixin, View):
     def post(self, request, *args, **kwargs):
-        team = get_object_or_404(request.user.teams, pk=kwargs["pk"])
-        get_object_or_404(team.allowed_email_domains, pk=kwargs["domain_pk"]).delete()
-        return redirect("oauth2_provider:team", pk=team.pk)
+        get_object_or_404(
+            self.team.allowed_email_domains, pk=kwargs["domain_pk"]
+        ).delete()
+        return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
 def _is_domain_allowed(application, email):
