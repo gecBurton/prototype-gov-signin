@@ -168,10 +168,12 @@ AUTHENTICATION_BACKENDS = [
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_FORMS = {"request_login_code": "users.forms.AutoEnrollRequestLoginCodeForm"}
 
-if os.environ.get("EMAIL_HOST"):
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
-    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "1025"))
+if os.environ.get("GOVUK_NOTIFY_API_KEY"):
+    EMAIL_BACKEND = "django_gov_notify.backends.NotifyEmailBackend"
+    GOVUK_NOTIFY_API_KEY = os.environ.get("GOVUK_NOTIFY_API_KEY")
+    GOVUK_NOTIFY_PLAIN_EMAIL_TEMPLATE_ID = os.environ.get(
+        "GOVUK_NOTIFY_PLAIN_EMAIL_TEMPLATE_ID"
+    )
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
