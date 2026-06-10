@@ -6,6 +6,8 @@ from oauth2_provider.models import AbstractApplication
 
 
 class Team(models.Model):
+    """A group of users who jointly own OAuth applications."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
 
@@ -14,6 +16,8 @@ class Team(models.Model):
 
 
 class UserManager(BaseUserManager):
+    """Manager for the username-less User model; creates users by email."""
+
     use_in_migrations = True
 
     def _create_user(self, email, password, **extra_fields):
@@ -36,6 +40,8 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
+    """A user identified by email address; there is no username field."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
     email = models.EmailField("email address", unique=True)
@@ -53,6 +59,8 @@ class User(AbstractUser):
 
 
 class Membership(models.Model):
+    """Joins a user to a team."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey("users.User", on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -67,6 +75,12 @@ class Membership(models.Model):
 
 
 class AllowedEmailDomain(models.Model):
+    """An email domain whose users may sign in to a team's applications.
+
+    Matching is by suffix: allowing cabinetoffice.gov.uk also admits
+    digital.cabinetoffice.gov.uk. A team with no domains allows all users.
+    """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(
         Team, on_delete=models.CASCADE, related_name="allowed_email_domains"
@@ -89,6 +103,8 @@ class AllowedEmailDomain(models.Model):
 
 
 class Application(AbstractApplication):
+    """An OAuth2/OIDC client, owned and managed by a team."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(
         Team,
