@@ -1,0 +1,24 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Your teams{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">Your teams</h1>
+
+{% if teams %}
+
+  <ul class="govuk-list">
+    {% for team in teams %}
+    <li><a class="govuk-link" href="{% url 'oauth2_provider:team' pk=team.pk %}">{{ team.name }}</a></li>
+    {% endfor %}
+  </ul>
+
+{% else %}
+
+  <div class="govuk-inset-text">
+    <p class="govuk-body">You are not a member of any team.</p>
+    <p class="govuk-body">To register and manage applications, ask an existing team member to add you to their team.</p>
+  </div>
+
+{% endif %}
+{% endblock %}

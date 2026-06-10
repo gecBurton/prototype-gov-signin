@@ -1,6 +1,0 @@
-*.key
-*.sqlite
-.venv
-__pycache__
-*.py[oc]
-tests/

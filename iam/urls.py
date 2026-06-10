@@ -5,37 +5,49 @@ from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
 from users.views import (
     ApplicationDelete,
     ApplicationDetail,
-    ApplicationList,
-    ApplicationOwnerManage,
-    ApplicationOwnerRemove,
     ApplicationRegistration,
     ApplicationUpdate,
     AuthorizationView,
-    TeamManage,
+    TeamDetail,
+    TeamDomainAdd,
+    TeamDomainRemove,
+    TeamList,
     TeamMemberRemove,
 )
 
 management_urlpatterns = [
-    path("applications/", ApplicationList.as_view(), name="list"),
-    path("applications/register/", ApplicationRegistration.as_view(), name="register"),
-    path("applications/<uuid:pk>/", ApplicationDetail.as_view(), name="detail"),
-    path("applications/<uuid:pk>/delete/", ApplicationDelete.as_view(), name="delete"),
-    path("applications/<uuid:pk>/update/", ApplicationUpdate.as_view(), name="update"),
+    path("teams/", TeamList.as_view(), name="teams"),
+    path("teams/<uuid:pk>/", TeamDetail.as_view(), name="team"),
     path(
-        "applications/<uuid:pk>/owners/",
-        ApplicationOwnerManage.as_view(),
-        name="owners",
-    ),
-    path(
-        "applications/<uuid:pk>/owners/<uuid:user_pk>/remove/",
-        ApplicationOwnerRemove.as_view(),
-        name="remove-owner",
-    ),
-    path("team/", TeamManage.as_view(), name="team"),
-    path(
-        "team/<uuid:user_pk>/remove/",
+        "teams/<uuid:pk>/members/<uuid:user_pk>/remove/",
         TeamMemberRemove.as_view(),
         name="remove-team-member",
+    ),
+    path("teams/<uuid:pk>/domains/", TeamDomainAdd.as_view(), name="add-domain"),
+    path(
+        "teams/<uuid:pk>/domains/<uuid:domain_pk>/remove/",
+        TeamDomainRemove.as_view(),
+        name="remove-domain",
+    ),
+    path(
+        "teams/<uuid:team_pk>/applications/register/",
+        ApplicationRegistration.as_view(),
+        name="register",
+    ),
+    path(
+        "teams/<uuid:team_pk>/applications/<uuid:pk>/",
+        ApplicationDetail.as_view(),
+        name="detail",
+    ),
+    path(
+        "teams/<uuid:team_pk>/applications/<uuid:pk>/update/",
+        ApplicationUpdate.as_view(),
+        name="update",
+    ),
+    path(
+        "teams/<uuid:team_pk>/applications/<uuid:pk>/delete/",
+        ApplicationDelete.as_view(),
+        name="delete",
     ),
 ]
 

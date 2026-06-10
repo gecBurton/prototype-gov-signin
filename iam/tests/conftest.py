@@ -31,10 +31,7 @@ def configure_settings():
 def demo_user(django_db_setup, django_db_blocker):
     User = get_user_model()
     with django_db_blocker.unblock():
-        user, _ = User.objects.get_or_create(
-            username="demo",
-            defaults={"email": "demo@example.com"},
-        )
+        user, _ = User.objects.get_or_create(email="demo@example.com")
         user.set_unusable_password()
         user.save()
     return user
@@ -79,16 +76,15 @@ def team(db):
 @pytest.fixture
 def owner(team):
     User = get_user_model()
-    user = User.objects.create_user(username="owner", email="owner@example.com")
-    user.team = team
-    user.save()
+    user = User.objects.create_user(email="owner@example.com")
+    user.teams.add(team)
     return user
 
 
 @pytest.fixture
 def stranger(db):
     User = get_user_model()
-    return User.objects.create_user(username="stranger", email="stranger@example.com")
+    return User.objects.create_user(email="stranger@example.com")
 
 
 @pytest.fixture

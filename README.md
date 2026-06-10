@@ -17,7 +17,7 @@ Built on two libraries that each own one half of the authentication picture.
 This project uses **login-by-code** (passwordless email). A user submits their email address, receives a one-time code, and enters it to complete sign-in. There is no password.
 
 ```
-user visits /o/applications/
+user visits /o/teams/
   → redirected to /accounts/login/
   → submits email at /accounts/login/code/
   → receives code by email (via Mailpit in dev)
@@ -27,11 +27,16 @@ user visits /o/applications/
 
 **Auto-enrolment.** On a fresh database no accounts exist. Rather than requiring a separate sign-up step, the service automatically creates an account the first time an email address is submitted. This is implemented in `iam/users/forms.py` via a custom `RequestLoginCodeForm` subclass registered under `ACCOUNT_FORMS` in settings. The created account has no usable password and a verified email address.
 
+**No usernames.** The custom `User` model has no username field; the email address is the identifier (`USERNAME_FIELD = "email"`). allauth is configured accordingly with `ACCOUNT_USER_MODEL_USERNAME_FIELD = None`.
+
 **Relevant settings:**
 
 ```python
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_FORMS = {"request_login_code": "users.forms.AutoEnrollRequestLoginCodeForm"}
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_LOGIN_METHODS = {"email"}
+ACCOUNT_SIGNUP_FIELDS = ["email*"]
 ```
 
 **Google social login** is partially configured (`allauth.socialaccount.providers.google` is installed, `SOCIALACCOUNT_PROVIDERS` is set). Completing this would let users sign in with their Cabinet Office Google account instead of the email code flow — allauth handles user creation on first login automatically, removing the need for the custom form.
@@ -65,9 +70,9 @@ DOT exposes the standard OIDC endpoints:
 | `/o/.well-known/openid-configuration/` | Discovery document |
 | `/o/jwks/` | Public keys for token verification |
 
-**Application management.** DOT provides base views for registering and managing OAuth clients (applications). This project extends them: the custom `Application` model (in `iam/users/models.py`) and views (in `iam/users/views.py`) add owner management and email domain restrictions on top of DOT's defaults.
+**Teams and application management.** DOT provides base views for registering and managing OAuth clients (applications). This project extends them: applications belong to a `Team` (models in `iam/users/models.py`), and users manage their teams' applications, members, and allowed email domains under `/o/teams/` (views in `iam/users/views.py`). Users and teams are many-to-many via a `Membership` model.
 
-**Domain restriction.** Each application can whitelist email domains. The custom `AuthorizationView` in `iam/users/views.py` intercepts the authorize endpoint and returns 403 if the authenticated user's email domain is not on the list. This check runs on both GET (consent screen) and POST (form submission).
+**Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured (or an application with no team) allows all users. The custom `AuthorizationView` in `iam/users/views.py` intercepts the authorize endpoint and returns 403 if the authenticated user's email domain is not allowed. This check runs on both GET (consent screen) and POST (form submission).
 
 **Relevant settings:**
 
