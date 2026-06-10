@@ -103,6 +103,10 @@ This starts:
 
 On first start, `manage.py create_demo_apps` seeds a demo user and a Grafana OAuth application. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
 
+## Configuration
+
+The `SECRET_KEY` environment variable is always required — there is no fallback and the service refuses to start without one. `DEBUG` defaults to **false**; when false, HTTPS-only cookies and SSL redirect are enabled. The dev entry points (`docker compose up`, `make run`, pytest) set `DEBUG=true` and an insecure dev `SECRET_KEY` for you, so a deployed instance only needs to set a real `SECRET_KEY` and leave `DEBUG` unset.
+
 ## Running tests
 
 ```

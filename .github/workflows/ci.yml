@@ -26,6 +26,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen --group dev
       - run: make format-check
+      - run: cd iam && uv run python manage.py makemigrations --check --dry-run
+        env:
+          DEBUG: "true"
+          SECRET_KEY: "insecure-ci-key"
       - run: uv run pytest iam/tests/ -v
         env:
           POSTGRES_HOST: localhost

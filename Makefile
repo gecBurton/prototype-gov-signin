@@ -1,5 +1,7 @@
 .DEFAULT_GOAL := help
 
+DEV_ENV := DEBUG=true SECRET_KEY=insecure-dev-key
+
 .PHONY: help install test run migrate makemigrations demo shell up down db integration-test install-integration format format-check
 
 help:
@@ -18,19 +20,19 @@ format-check: ## Check formatting without making changes (used in CI)
 	uv run ruff check . --select I && uv run ruff format --check .
 
 run: ## Start the development server
-	cd iam && uv run python manage.py runserver
+	cd iam && $(DEV_ENV) uv run python manage.py runserver
 
 migrate: ## Apply database migrations
-	cd iam && uv run python manage.py migrate
+	cd iam && $(DEV_ENV) uv run python manage.py migrate
 
 makemigrations: ## Create new migrations
-	cd iam && uv run python manage.py makemigrations
+	cd iam && $(DEV_ENV) uv run python manage.py makemigrations
 
 demo: ## Run the OIDC flow demo script
-	cd iam && uv run python demo.py
+	cd iam && $(DEV_ENV) uv run python demo.py
 
 shell: ## Open a Django shell
-	cd iam && uv run python manage.py shell
+	cd iam && $(DEV_ENV) uv run python manage.py shell
 
 up: ## Start all services (postgres + iam)
 	docker compose up --build

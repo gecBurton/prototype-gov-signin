@@ -20,6 +20,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.3",
     "pytest-django>=4.12.0",
+    "pytest-env>=1.6.0",
     "ruff>=0.15.16",
 ]
 integration = [
@@ -31,3 +32,4 @@ integration = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "settings"
 pythonpath = ["iam"]
+env = ["DEBUG=true", "SECRET_KEY=insecure-test-key"]
