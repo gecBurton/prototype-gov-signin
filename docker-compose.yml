@@ -32,6 +32,8 @@ services:
     volumes:
       - ./iam/oidc.key:/app/oidc.key:ro
     environment:
+      DEBUG: "true"
+      SECRET_KEY: "insecure-dev-key"
       POSTGRES_HOST: db
       POSTGRES_DB: iam
       POSTGRES_USER: iam

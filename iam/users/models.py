@@ -15,6 +15,7 @@ class Team(models.Model):
 
 class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField("email address", unique=True)
     team = models.ForeignKey(
         Team,
         null=True,
