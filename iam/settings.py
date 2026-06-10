@@ -165,6 +165,7 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
+ACCOUNT_ADAPTER = "users.adapters.AccountAdapter"
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_FORMS = {"request_login_code": "users.forms.AutoEnrollRequestLoginCodeForm"}
 
