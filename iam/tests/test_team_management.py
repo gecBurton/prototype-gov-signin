@@ -33,7 +33,9 @@ def test_team_page_teamless_shows_explanation(client, stranger):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("url", ["/o/team/", "/o/team/99999/remove/"])
+@pytest.mark.parametrize(
+    "url", ["/o/team/", "/o/team/00000000-0000-0000-0000-000000000000/remove/"]
+)
 def test_post_forbidden_for_teamless_user(client, stranger, url):
     client.force_login(stranger)
     assert client.post(url).status_code == 403
@@ -89,4 +91,7 @@ def test_remove_non_member_is_noop(client, owner, stranger):
 
 def test_remove_member_invalid_user_pk(client, owner):
     client.force_login(owner)
-    assert client.post("/o/team/99999/remove/").status_code == 404
+    assert (
+        client.post("/o/team/00000000-0000-0000-0000-000000000000/remove/").status_code
+        == 404
+    )

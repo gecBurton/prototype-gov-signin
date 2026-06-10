@@ -1,17 +1,20 @@
+import uuid
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from oauth2_provider.models import AbstractApplication
 
 
 class Team(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
 
     def __str__(self):
         return self.name
 
 
-
 class User(AbstractUser):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(
         Team,
         null=True,
@@ -22,6 +25,7 @@ class User(AbstractUser):
 
 
 class Application(AbstractApplication):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(
         Team,
         null=True,

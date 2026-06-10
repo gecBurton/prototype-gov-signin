@@ -18,22 +18,22 @@ from users.views import (
 management_urlpatterns = [
     path("applications/", ApplicationList.as_view(), name="list"),
     path("applications/register/", ApplicationRegistration.as_view(), name="register"),
-    path("applications/<slug:pk>/", ApplicationDetail.as_view(), name="detail"),
-    path("applications/<slug:pk>/delete/", ApplicationDelete.as_view(), name="delete"),
-    path("applications/<slug:pk>/update/", ApplicationUpdate.as_view(), name="update"),
+    path("applications/<uuid:pk>/", ApplicationDetail.as_view(), name="detail"),
+    path("applications/<uuid:pk>/delete/", ApplicationDelete.as_view(), name="delete"),
+    path("applications/<uuid:pk>/update/", ApplicationUpdate.as_view(), name="update"),
     path(
-        "applications/<slug:pk>/owners/",
+        "applications/<uuid:pk>/owners/",
         ApplicationOwnerManage.as_view(),
         name="owners",
     ),
     path(
-        "applications/<slug:pk>/owners/<int:user_pk>/remove/",
+        "applications/<uuid:pk>/owners/<uuid:user_pk>/remove/",
         ApplicationOwnerRemove.as_view(),
         name="remove-owner",
     ),
     path("team/", TeamManage.as_view(), name="team"),
     path(
-        "team/<int:user_pk>/remove/",
+        "team/<uuid:user_pk>/remove/",
         TeamMemberRemove.as_view(),
         name="remove-team-member",
     ),

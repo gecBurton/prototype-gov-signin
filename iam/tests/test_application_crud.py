@@ -49,7 +49,11 @@ def test_list_shows_only_team_apps(client, owner, stranger, app):
 
 @pytest.mark.parametrize(
     "suffix",
-    [pytest.param("", id="detail"), pytest.param("update/", id="update"), pytest.param("delete/", id="delete")],
+    [
+        pytest.param("", id="detail"),
+        pytest.param("update/", id="update"),
+        pytest.param("delete/", id="delete"),
+    ],
 )
 @pytest.mark.parametrize(
     "authed_client,expected_status",
@@ -57,7 +61,10 @@ def test_list_shows_only_team_apps(client, owner, stranger, app):
     indirect=["authed_client"],
 )
 def test_app_view_access(authed_client, expected_status, suffix, app):
-    assert authed_client.get(f"/o/applications/{app.pk}/{suffix}").status_code == expected_status
+    assert (
+        authed_client.get(f"/o/applications/{app.pk}/{suffix}").status_code
+        == expected_status
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +79,10 @@ def test_app_view_access(authed_client, expected_status, suffix, app):
     indirect=["authed_client"],
 )
 def test_app_write_blocked_for_non_member(authed_client, expected_status, suffix, app):
-    assert authed_client.post(f"/o/applications/{app.pk}/{suffix}").status_code == expected_status
+    assert (
+        authed_client.post(f"/o/applications/{app.pk}/{suffix}").status_code
+        == expected_status
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +115,10 @@ def test_delete_removes_application(client, owner, app):
 
 def test_delete_redirects_to_list(client, owner, app):
     client.force_login(owner)
-    assert client.post(f"/o/applications/{app.pk}/delete/")["Location"] == "/o/applications/"
+    assert (
+        client.post(f"/o/applications/{app.pk}/delete/")["Location"]
+        == "/o/applications/"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +143,8 @@ def test_registration_assigns_creators_team(client, owner):
 
 def test_registration_redirects_to_detail(client, owner):
     client.force_login(owner)
-    response = client.post("/o/applications/register/", {**_FORM_BASE, "name": "New App"})
+    response = client.post(
+        "/o/applications/register/", {**_FORM_BASE, "name": "New App"}
+    )
     app = Application.objects.get(name="New App")
     assert response["Location"] == f"/o/applications/{app.pk}/"
