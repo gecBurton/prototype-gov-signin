@@ -215,6 +215,37 @@ def test_registration_blocked_for_non_member(client, stranger, team):
     assert not Application.objects.filter(name="New App").exists()
 
 
+@pytest.mark.parametrize(
+    "redirect_uri,allowed",
+    [
+        ("https://app.example.gov.uk/callback", True),
+        ("http://localhost:3000/callback", True),  # loopback exception
+        ("http://127.0.0.1/callback", True),  # loopback exception
+        ("http://app.example.gov.uk/callback", False),  # cleartext, non-loopback
+    ],
+)
+def test_registration_enforces_https_redirect(
+    client, owner, team, redirect_uri, allowed
+):
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/register/",
+        {
+            "client_type": Application.CLIENT_CONFIDENTIAL,
+            "redirect_uris": redirect_uri,
+            "name": "Scheme App",
+        },
+    )
+    created = Application.objects.filter(name="Scheme App").exists()
+    if allowed:
+        assert response.status_code == 302
+        assert created
+    else:
+        # Form redisplayed with a validation error; nothing saved.
+        assert response.status_code == 200
+        assert not created
+
+
 # ---------------------------------------------------------------------------
 # Server-issued credentials
 # ---------------------------------------------------------------------------

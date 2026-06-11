@@ -74,6 +74,9 @@ def test_full_oidc_authorization_code_flow(client, demo_user, oauth_app, mailout
     tokens = json.loads(response.content)
     assert "access_token" in tokens
     assert "id_token" in tokens
+    # Access tokens are deliberately short-lived (not the multi-hour default) so
+    # access does not long outlive a change in authorization.
+    assert tokens["expires_in"] <= 600
 
     # 8. Client calls userinfo with the access token
     response = client.get(

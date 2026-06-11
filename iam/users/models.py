@@ -1,8 +1,14 @@
 import uuid
+from urllib.parse import urlparse
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.exceptions import ValidationError
 from django.db import models
 from oauth2_provider.models import AbstractApplication
+
+# http is only safe for loopback redirect URIs (a developer's own machine, per
+# RFC 8252); anywhere else a cleartext redirect can leak the authorization code.
+_LOOPBACK_REDIRECT_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class Team(models.Model):
@@ -133,6 +139,29 @@ class Application(AbstractApplication):
     # Client secrets are always stored hashed; a lost secret is replaced,
     # never recovered.
     hash_client_secret = models.BooleanField(default=True, editable=False)
+
+    def clean(self):
+        super().clean()
+        # Require https for redirect URIs, allowing http only for loopback
+        # hosts. The parent permits http anywhere; tighten it so an
+        # authorization code can never be sent to a cleartext, non-local
+        # endpoint. Enforced on the registration/update form (which validates);
+        # ORM-seeded apps such as the demo bypass this, and the demo's
+        # http://localhost redirect is loopback anyway.
+        for uri in self.redirect_uris.split():
+            parsed = urlparse(uri)
+            if (
+                parsed.scheme == "http"
+                and parsed.hostname not in _LOOPBACK_REDIRECT_HOSTS
+            ):
+                raise ValidationError(
+                    {
+                        "redirect_uris": (
+                            f"{uri} must use https. http is only allowed for "
+                            "loopback addresses (localhost) during development."
+                        )
+                    }
+                )
 
     class Meta(AbstractApplication.Meta):
         swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
