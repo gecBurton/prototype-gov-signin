@@ -58,6 +58,7 @@ def create_team(name: str, *member_emails: str) -> None:
     """
     lines = [
         "from django.contrib.auth import get_user_model",
+        "from allauth.account.models import EmailAddress",
         "from users.models import Team",
         f"team = Team.objects.create(name={name!r})",
     ]
@@ -65,6 +66,11 @@ def create_team(name: str, *member_emails: str) -> None:
         lines += [
             f"user, _ = get_user_model().objects.get_or_create(email={email!r})",
             "user.teams.add(team)",
+            # A verified EmailAddress mirrors a real (auto-enrolled or Google)
+            # user; without it, ACCOUNT_EMAIL_VERIFICATION="mandatory" bounces
+            # the login to the email-confirmation page.
+            f"EmailAddress.objects.update_or_create(user=user, email={email!r}, "
+            "defaults={'primary': True, 'verified': True})",
         ]
     subprocess.run(
         [
