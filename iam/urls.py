@@ -9,7 +9,6 @@ from users.views import (
     ApplicationSecretRegenerate,
     ApplicationUpdate,
     AuthorizationView,
-    Profile,
     TeamDetail,
     TeamDomainAdd,
     TeamDomainRemove,
@@ -80,6 +79,5 @@ urlpatterns = [
             )
         ),
     ),
-    path("accounts/profile/", Profile.as_view(), name="profile"),
     path("accounts/", include("allauth.urls")),
 ]

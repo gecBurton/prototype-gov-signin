@@ -1,4 +1,0 @@
-{% comment %}
-Overrides allauth's "Successfully signed in as <email>." flash message with
-nothing: the signed-in state is shown by the profile link in the header.
-{% endcomment %}
