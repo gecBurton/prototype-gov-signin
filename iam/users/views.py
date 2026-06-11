@@ -11,6 +11,7 @@ from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import get_application_model
 from oauth2_provider.views import application as base_views
 from oauth2_provider.views import base as oidc_base_views
+from validators import OIDCValidator
 
 _APPLICATION_FORM_FIELDS = (
     "name",
@@ -107,6 +108,19 @@ class ApplicationUpdate(ApplicationFormMixin, base_views.ApplicationUpdate):
 class ApplicationDelete(TeamApplicationMixin, base_views.ApplicationDelete):
     def get_success_url(self):
         return reverse("oauth2_provider:team", kwargs={"pk": self.team.pk})
+
+
+class Profile(LoginRequiredMixin, View):
+    """Show the signed-in user the claims relying parties get from userinfo."""
+
+    def get(self, request, *args, **kwargs):
+        # get_claim_dict duck-types: it only needs .user, so the Django
+        # request works in place of an oauthlib one.
+        claims = {
+            name: value(request) if callable(value) else value
+            for name, value in OIDCValidator().get_claim_dict(request).items()
+        }
+        return render(request, "account/profile.html", {"claims": claims})
 
 
 class TeamList(LoginRequiredMixin, ListView):
