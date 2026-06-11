@@ -270,6 +270,12 @@ OAUTH2_PROVIDER = {
     # time still needs explicit token revocation on domain/membership removal —
     # tracked separately; this only bounds the access-token window.
     "ACCESS_TOKEN_EXPIRE_SECONDS": 600,  # 10 minutes
+    # Only the authorization-code flow is permitted (every Application is
+    # constrained to the code grant), so advertise only "code" rather than the
+    # toolkit default that also lists the implicit/hybrid response types no
+    # client here can use. RS256-only and S256-only are trimmed from the
+    # discovery document in users.views.DiscoveryInfoView.
+    "OIDC_RESPONSE_TYPES_SUPPORTED": ["code"],
     "SCOPES": {
         "openid": "OpenID Connect scope",
         "profile": "User profile",

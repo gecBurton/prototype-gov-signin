@@ -1,8 +1,10 @@
+import json
 from functools import cached_property
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.forms.models import modelform_factory
+from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
@@ -11,6 +13,7 @@ from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import get_application_model
 from oauth2_provider.views import application as base_views
 from oauth2_provider.views import base as oidc_base_views
+from oauth2_provider.views import oidc as oidc_views
 
 _APPLICATION_FORM_FIELDS = (
     "name",
@@ -200,6 +203,23 @@ def _is_domain_allowed(application, email):
     return allowed.filter(domain__in=suffixes).exists() or not allowed.exists()
 
 
+def _reject_weak_pkce(params):
+    """Return a 400 if PKCE is used with anything other than S256, else None.
+
+    The toolkit accepts the ``plain`` challenge method, which offers no
+    protection against authorization-code interception (the challenge equals
+    the verifier). Require S256 whenever a challenge is present so the only
+    PKCE method we accept matches what the discovery document advertises.
+    """
+    challenge = params.get("code_challenge")
+    method = params.get("code_challenge_method")
+    if challenge and method != "S256":
+        return HttpResponseBadRequest(
+            "Unsupported code_challenge_method; only S256 is allowed."
+        )
+    return None
+
+
 class AuthorizationView(oidc_base_views.AuthorizationView):
     def _check_domain(self, request, client_id):
         """Return a 403 response if the user's email domain is not whitelisted, else None."""
@@ -217,6 +237,8 @@ class AuthorizationView(oidc_base_views.AuthorizationView):
         return None
 
     def get(self, request, *args, **kwargs):
+        if weak := _reject_weak_pkce(request.GET):
+            return weak
         if request.user.is_authenticated:
             client_id = request.GET.get("client_id", "")
             if denied := self._check_domain(request, client_id):
@@ -224,7 +246,29 @@ class AuthorizationView(oidc_base_views.AuthorizationView):
         return super().get(request, *args, **kwargs)
 
     def form_valid(self, form):
+        if weak := _reject_weak_pkce(self.request.POST):
+            return weak
         client_id = form.cleaned_data["client_id"]
         if denied := self._check_domain(self.request, client_id):
             return denied
         return super().form_valid(form)
+
+
+class DiscoveryInfoView(oidc_views.ConnectDiscoveryInfoView):
+    """Advertise only what this server actually honours.
+
+    The toolkit hardcodes ``HS256`` and the ``plain`` PKCE method into the
+    discovery document, but every Application is constrained to RS256 (a model
+    CheckConstraint) and only S256 PKCE is accepted (see _reject_weak_pkce).
+    Trim those two fields so a relying party cannot be led to negotiate an
+    algorithm or challenge method the server will reject. (response_types is
+    narrowed to ["code"] via OIDC_RESPONSE_TYPES_SUPPORTED.)
+    """
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        data = json.loads(response.content)
+        data["id_token_signing_alg_values_supported"] = ["RS256"]
+        data["code_challenge_methods_supported"] = ["S256"]
+        response.content = json.dumps(data)
+        return response
