@@ -91,3 +91,7 @@ def test_full_oidc_authorization_code_flow(client, demo_user, oauth_app, mailout
     assert claims["aud"] == CLIENT_ID
     assert claims["sub"] == str(demo_user.pk)
     assert "iss" in claims
+    # The login-by-code flow proves mailbox control, so the verified claim the
+    # relying party trusts must be True for this legitimate path.
+    assert claims["email"] == demo_user.email
+    assert claims["email_verified"] is True

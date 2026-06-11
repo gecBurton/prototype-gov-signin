@@ -179,6 +179,13 @@ ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*"]
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_FORMS = {"request_login_code": "users.forms.AutoEnrollRequestLoginCodeForm"}
+# An authenticated session must never be backed by an unverified email: every
+# OIDC token we mint asserts the user's email, so a flow that logs someone in
+# before they prove control of the mailbox would let them impersonate any
+# address. Login-by-code and Google both prove control, so this is invisible to
+# legitimate users; it exists to stop any *other* flow (e.g. the open signup
+# page) from establishing a session for an unverified address.
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 
 if os.environ.get("GOVUK_NOTIFY_API_KEY"):
     EMAIL_BACKEND = "django_gov_notify.backends.NotifyEmailBackend"

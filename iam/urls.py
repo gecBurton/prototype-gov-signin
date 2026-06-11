@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.urls import include, path
-from django.views.generic import TemplateView
+from django.views.generic import RedirectView, TemplateView
 from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
 from users.views import (
     ApplicationDelete,
@@ -78,6 +78,17 @@ urlpatterns = [
                 "oauth2_provider",
             )
         ),
+    ),
+    # Close allauth's standalone signup page: accounts are only ever created by
+    # the login-by-code auto-enrol flow (users/forms.py) or a verified Google
+    # login. The open signup form takes just an email and (before mandatory
+    # verification) handed out a session for an unverified address. Shadowing
+    # the route here — rather than the account adapter's is_open_for_signup —
+    # leaves Google's social auto-signup working. Listed before the allauth
+    # include so it wins; covers GET and POST.
+    path(
+        "accounts/signup/",
+        RedirectView.as_view(pattern_name="account_login", permanent=False),
     ),
     path("accounts/", include("allauth.urls")),
 ]

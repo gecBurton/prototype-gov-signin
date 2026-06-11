@@ -1,3 +1,4 @@
+from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from oauth2_provider.models import get_application_model
@@ -23,6 +24,14 @@ class Command(BaseCommand):
         if created:
             user.set_unusable_password()
             user.save()
+        # A verified EmailAddress mirrors a real (auto-enrolled or Google) user
+        # and lets the demo account sign in under ACCOUNT_EMAIL_VERIFICATION=
+        # "mandatory".
+        EmailAddress.objects.get_or_create(
+            user=user,
+            email=email,
+            defaults={"primary": True, "verified": True},
+        )
         action = "Created" if created else "Found"
         self.stdout.write(self.style.SUCCESS(f"{action} user: {email}"))
 
