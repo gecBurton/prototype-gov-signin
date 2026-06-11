@@ -25,18 +25,8 @@
     <dd class="govuk-summary-list__value"><code id="client-id">{{ application.client_id }}</code></dd>
   </div>
   <div class="govuk-summary-list__row">
-    <dt class="govuk-summary-list__key">Client secret</dt>
-    <dd class="govuk-summary-list__value">
-      <span class="govuk-hint">Only a secure hash of the secret is stored, so it cannot be shown here. If you have lost the secret, regenerate it below.</span>
-    </dd>
-  </div>
-  <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Client type</dt>
     <dd class="govuk-summary-list__value">{{ application.client_type }}</dd>
-  </div>
-  <div class="govuk-summary-list__row">
-    <dt class="govuk-summary-list__key">Grant type</dt>
-    <dd class="govuk-summary-list__value">{{ application.authorization_grant_type }}</dd>
   </div>
   {% if application.redirect_uris %}
   <div class="govuk-summary-list__row">
@@ -44,10 +34,6 @@
     <dd class="govuk-summary-list__value">{{ application.redirect_uris }}</dd>
   </div>
   {% endif %}
-  <div class="govuk-summary-list__row">
-    <dt class="govuk-summary-list__key">Algorithm</dt>
-    <dd class="govuk-summary-list__value">{{ application.algorithm }}</dd>
-  </div>
 </dl>
 
 <div class="govuk-button-group">
