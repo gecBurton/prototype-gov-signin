@@ -114,12 +114,10 @@ elif os.environ.get("POSTGRES_HOST"):
         }
     }
 else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+    raise ImproperlyConfigured(
+        "No database configured. Set DATABASE_URL or POSTGRES_HOST — this "
+        "service requires PostgreSQL."
+    )
 
 
 # Password validation

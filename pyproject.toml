@@ -35,4 +35,11 @@ integration = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "settings"
 pythonpath = ["iam"]
-env = ["DEBUG=true", "SECRET_KEY=insecure-test-key"]
+# Tests run against PostgreSQL (start it with `make db`). The host/credentials
+# match the docker compose `db` service; the remaining POSTGRES_* values fall
+# back to "iam" in settings.py.
+env = [
+    "DEBUG=true",
+    "SECRET_KEY=insecure-test-key",
+    "POSTGRES_HOST=localhost",
+]

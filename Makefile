@@ -1,6 +1,8 @@
 .DEFAULT_GOAL := help
 
-DEV_ENV := DEBUG=true SECRET_KEY=insecure-dev-key
+# Local commands target the docker compose `db` service (start it with `make
+# db`). The other POSTGRES_* values default to "iam" in settings.py.
+DEV_ENV := DEBUG=true SECRET_KEY=insecure-dev-key POSTGRES_HOST=localhost
 
 .PHONY: help install test run migrate makemigrations demo shell up down db integration-test install-integration format format-check
 
@@ -10,7 +12,7 @@ help:
 install: ## Install dependencies
 	uv sync
 
-test: ## Run tests
+test: ## Run tests (requires: make db)
 	uv run pytest tests/ -v --cov=iam --cov-report=term-missing
 
 format: ## Run linter
