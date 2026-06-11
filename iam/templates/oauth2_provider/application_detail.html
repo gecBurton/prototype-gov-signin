@@ -36,12 +36,10 @@
   {% endif %}
 </dl>
 
-<div class="govuk-button-group">
+<form method="post" action="{% url 'oauth2_provider:regenerate-secret' team_pk=team.pk pk=application.pk %}" class="govuk-button-group">
+  {% csrf_token %}
   <a href="{% url 'oauth2_provider:update' team_pk=team.pk pk=application.pk %}" class="govuk-button">Edit</a>
-  <form method="post" action="{% url 'oauth2_provider:regenerate-secret' team_pk=team.pk pk=application.pk %}">
-    {% csrf_token %}
-    <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">Regenerate secret</button>
-  </form>
+  <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">Regenerate secret</button>
   <a href="{% url 'oauth2_provider:delete' team_pk=team.pk pk=application.pk %}" class="govuk-link">Delete application</a>
-</div>
+</form>
 {% endblock %}
