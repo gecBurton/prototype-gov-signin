@@ -1,5 +1,0 @@
-{% comment %}
-Overrides allauth's "You have confirmed <email>." flash message (triggered on
-first login-code confirmation) with nothing: the signed-in state is shown by
-the profile link in the header.
-{% endcomment %}
