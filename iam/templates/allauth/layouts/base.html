@@ -13,6 +13,10 @@
     .govuk-footer__copyright-logo:before{background-image:url(https://cdn.jsdelivr.net/npm/govuk-frontend@6.2.0/dist/govuk/assets/images/govuk-crest.svg)}
     @supports((-webkit-mask-position:initial) or (mask-position:initial)){.govuk-footer__copyright-logo:before{-webkit-mask-image:url(https://cdn.jsdelivr.net/npm/govuk-frontend@6.2.0/dist/govuk/assets/images/govuk-crest.svg);mask-image:url(https://cdn.jsdelivr.net/npm/govuk-frontend@6.2.0/dist/govuk/assets/images/govuk-crest.svg)}}
     code{word-break:break-all}
+    /* Notify-style hero: a brand-blue band continuing from the header */
+    .app-hero{background:#1d70b8}
+    .app-hero__content{padding:30px 0 50px}
+    .app-hero .govuk-heading-xl,.app-hero .govuk-body-l{color:#fff}
   </style>
   {% block extra_head %}{% endblock %}
 </head>
@@ -83,6 +87,7 @@
     </div>
   </header>
 
+  {% block hero %}{% endblock %}
 
   <div class="govuk-width-container">
     <div class="govuk-phase-banner">
