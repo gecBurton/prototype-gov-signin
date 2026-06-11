@@ -39,7 +39,7 @@ ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*"]
 ```
 
-**Google social login** is partially configured (`allauth.socialaccount.providers.google` is installed, `SOCIALACCOUNT_PROVIDERS` is set). Completing this would let users sign in with their Cabinet Office Google account instead of the email code flow — allauth handles user creation on first login automatically, removing the need for the custom form.
+**Google social login** is fully wired and activates whenever `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set (the login page shows a "Sign in with Google" button, with the email code flow kept as the fallback for users without a Google account). The OAuth client in the Google console must have `<origin>/accounts/google/login/callback/` registered as a redirect URI for each environment. Because Google only asserts verified email addresses, `SOCIALACCOUNT_EMAIL_AUTHENTICATION` is enabled: a Google login whose email matches an existing account (for example one created by the email code flow) signs in to that account and links the Google account to it, rather than creating a duplicate.
 
 ---
 

@@ -194,6 +194,13 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 
+# A Google login whose email matches an existing account signs straight in to
+# that account (and the Google account is linked for next time) instead of
+# hitting an "account already exists" page. This is safe only because Google
+# asserts verified email addresses; do not enable for providers that don't.
+SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
+
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
