@@ -31,6 +31,7 @@ jobs:
         env:
           DEBUG: "true"
           SECRET_KEY: "insecure-ci-key"
+          POSTGRES_HOST: localhost
       - run: uv run pytest tests/ -v
         env:
           POSTGRES_HOST: localhost

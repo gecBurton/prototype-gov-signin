@@ -135,10 +135,11 @@ Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` i
 
 ```
 make install
+make db      # start Postgres (once; stays up for repeated runs)
 make test
 ```
 
-Tests use SQLite (no Postgres needed) and `locmem` email backend. The full OIDC flow is covered in `tests/test_oidc_flow.py`.
+Tests run against PostgreSQL — the service requires it, with no SQLite fallback — and use the `locmem` email backend. `make db` starts the Postgres container the tests connect to. The full OIDC flow is covered in `tests/test_oidc_flow.py`.
 
 ### Integration tests (Playwright)
 

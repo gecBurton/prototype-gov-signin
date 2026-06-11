@@ -1,5 +1,4 @@
 *.key
-*.sqlite
 .venv
 **/.venv
 __pycache__
