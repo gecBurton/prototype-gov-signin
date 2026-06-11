@@ -186,6 +186,19 @@ ACCOUNT_FORMS = {"request_login_code": "users.forms.AutoEnrollRequestLoginCodeFo
 # legitimate users; it exists to stop any *other* flow (e.g. the open signup
 # page) from establishing a session for an unverified address.
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+# Tighten the one unauthenticated, side-effecting endpoint: requesting a login
+# code both auto-enrols an account (users/forms.py) and sends a code email.
+# allauth merges this over its defaults (ret.update), so only this key changes.
+# The added per-recipient hourly cap (10/h/key) curbs email-bombing of any one
+# address and is risk-free: no legitimate user needs that many codes for their
+# own mailbox. The per-IP limits are left at allauth's defaults on purpose — a
+# tighter hourly per-IP ceiling would throttle a shared egress IP (office NAT).
+# That means junk-account creation across many distinct emails is still only
+# loosely bounded; fully removing it needs not persisting a User until the code
+# is confirmed (follow-up).
+ACCOUNT_RATE_LIMITS = {
+    "request_login_code": "20/m/ip,3/m/key,10/h/key",
+}
 
 if os.environ.get("GOVUK_NOTIFY_API_KEY"):
     EMAIL_BACKEND = "django_gov_notify.backends.NotifyEmailBackend"
@@ -224,15 +237,21 @@ SOCIALACCOUNT_PROVIDERS = {
 
 # allauth's Google adapter lets each endpoint be overridden, so docker compose
 # points them at a local Dex server and the integration tests can drive the
-# production Google code path without real Google credentials. Leave these
-# unset in production.
-for _key, _env in {
-    "AUTHORIZE_URL": "GOOGLE_AUTHORIZE_URL",
-    "ACCESS_TOKEN_URL": "GOOGLE_ACCESS_TOKEN_URL",
-    "ID_TOKEN_ISSUER": "GOOGLE_ID_TOKEN_ISSUER",
-}.items():
-    if os.environ.get(_env):
-        SOCIALACCOUNT_PROVIDERS["google"][_key] = os.environ[_env]
+# production Google code path without real Google credentials.
+#
+# These overrides are honoured ONLY under DEBUG. In production they are ignored
+# even if the env vars are present, so a stray value (e.g. copied from
+# docker-compose.yml) cannot repoint "Google" at an attacker-controlled IdP —
+# which, with SOCIALACCOUNT_EMAIL_AUTHENTICATION, would let that IdP mint a
+# verified login for any address. Fail closed to the real Google endpoints.
+if DEBUG:
+    for _key, _env in {
+        "AUTHORIZE_URL": "GOOGLE_AUTHORIZE_URL",
+        "ACCESS_TOKEN_URL": "GOOGLE_ACCESS_TOKEN_URL",
+        "ID_TOKEN_ISSUER": "GOOGLE_ID_TOKEN_ISSUER",
+    }.items():
+        if os.environ.get(_env):
+            SOCIALACCOUNT_PROVIDERS["google"][_key] = os.environ[_env]
 
 _oidc_key = os.environ.get("OIDC_RSA_PRIVATE_KEY")
 if not _oidc_key:
@@ -244,6 +263,13 @@ OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "OIDC_RSA_PRIVATE_KEY": _oidc_key,
     "OAUTH2_VALIDATOR_CLASS": "validators.OIDCValidator",
+    # Short-lived access tokens (default is 10 hours). This service exists to
+    # gate access, so a token should not outlive a change in authorization by
+    # long. Relying parties refresh as needed. NB: refresh tokens are not
+    # re-checked against the domain allowlist, so revoking access in near-real
+    # time still needs explicit token revocation on domain/membership removal —
+    # tracked separately; this only bounds the access-token window.
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 600,  # 10 minutes
     "SCOPES": {
         "openid": "OpenID Connect scope",
         "profile": "User profile",
