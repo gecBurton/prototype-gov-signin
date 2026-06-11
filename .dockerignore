@@ -5,7 +5,7 @@
 __pycache__
 **/__pycache__
 *.py[oc]
-iam/tests/
+tests/
 integration_tests/
 .git
 .github

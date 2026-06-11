@@ -133,7 +133,7 @@ make install
 make test
 ```
 
-Tests use SQLite (no Postgres needed) and `locmem` email backend. The full OIDC flow is covered in `iam/tests/test_oidc_flow.py`.
+Tests use SQLite (no Postgres needed) and `locmem` email backend. The full OIDC flow is covered in `tests/test_oidc_flow.py`.
 
 ### Integration tests (Playwright)
 
