@@ -41,13 +41,30 @@ services:
       ALLOWED_HOSTS: "localhost,iam,127.0.0.1"
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      # "Sign in with Google" is wired to the local Dex stand-in (see the dex
+      # service), so the flow works without real Google credentials. The
+      # browser-facing URLs use localhost; the token exchange happens
+      # container-to-container.
+      GOOGLE_CLIENT_ID: iam
+      GOOGLE_CLIENT_SECRET: iam-dex-secret
+      GOOGLE_AUTHORIZE_URL: http://localhost:5556/dex/auth
+      GOOGLE_ACCESS_TOKEN_URL: http://dex:5556/dex/token
+      GOOGLE_ID_TOKEN_ISSUER: http://localhost:5556/dex
     depends_on:
       db:
         condition: service_healthy
       mailpit:
         condition: service_started
+      dex:
+        condition: service_started
+
+  dex:
+    image: ghcr.io/dexidp/dex:latest
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./integration_tests/dex.yaml:/etc/dex/config.yaml:ro
 
   grafana:
     image: grafana/grafana:latest

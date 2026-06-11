@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.db.models import ProtectedError
 from users.models import Team
 
 User = get_user_model()
@@ -36,6 +37,21 @@ def test_team_list_shows_all_teams(client, owner, team, second_team):
 def test_team_list_teamless_shows_explanation(client, stranger):
     client.force_login(stranger)
     assert "not a member of any team" in client.get("/o/teams/").content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Team deletion
+# ---------------------------------------------------------------------------
+
+
+def test_delete_team_with_applications_is_blocked(team, app):
+    with pytest.raises(ProtectedError):
+        team.delete()
+
+
+def test_delete_team_without_applications_succeeds(team):
+    team.delete()
+    assert not Team.objects.filter(pk=team.pk).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -105,18 +121,20 @@ def test_add_member_keeps_existing_memberships(client, owner, stranger, team):
     assert set(stranger.teams.all()) == {team, other}
 
 
+# The same message is used whether the user does not exist or is already a
+# member, so the form cannot be used to probe which emails have accounts.
 @pytest.mark.parametrize(
-    "email,error_fragment",
+    "email",
     [
-        ("nobody@example.com", "No user found with email nobody@example.com"),
-        ("owner@example.com", "owner@example.com is already a team member"),
+        pytest.param("nobody@example.com", id="unknown-user"),
+        pytest.param("owner@example.com", id="already-member"),
     ],
 )
-def test_add_member_validation(client, owner, team, email, error_fragment):
+def test_add_member_validation(client, owner, team, email):
     client.force_login(owner)
     response = client.post(f"/o/teams/{team.pk}/", {"email": email})
     assert response.status_code == 200
-    assert error_fragment in response.content.decode()
+    assert f"Could not add {email}." in response.content.decode()
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +164,22 @@ def test_remove_non_member_is_noop(client, owner, stranger, team):
     client.force_login(owner)
     client.post(f"/o/teams/{team.pk}/members/{stranger.pk}/remove/")
     assert not stranger.teams.exists()
+
+
+def test_remove_last_member_is_blocked(client, owner, team):
+    client.force_login(owner)
+    response = client.post(f"/o/teams/{team.pk}/members/{owner.pk}/remove/")
+    assert response.status_code == 200
+    assert "cannot remove the last member" in response.content.decode()
+    assert owner.teams.filter(pk=team.pk).exists()
+
+
+def test_remove_self_with_other_members_succeeds(client, owner, stranger, team):
+    stranger.teams.add(team)
+    client.force_login(owner)
+    response = client.post(f"/o/teams/{team.pk}/members/{owner.pk}/remove/")
+    assert response.status_code == 302
+    assert not owner.teams.filter(pk=team.pk).exists()
 
 
 def test_remove_member_invalid_user_pk(client, owner, team):

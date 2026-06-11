@@ -39,7 +39,9 @@ ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*"]
 ```
 
-**Google social login** is partially configured (`allauth.socialaccount.providers.google` is installed, `SOCIALACCOUNT_PROVIDERS` is set). Completing this would let users sign in with their Cabinet Office Google account instead of the email code flow — allauth handles user creation on first login automatically, removing the need for the custom form.
+**Google social login** is fully wired and activates whenever `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set (the login page shows a "Sign in with Google" button, with the email code flow kept as the fallback for users without a Google account). The OAuth client in the Google console must have `<origin>/accounts/google/login/callback/` registered as a redirect URI for each environment. Because Google only asserts verified email addresses, `SOCIALACCOUNT_EMAIL_AUTHENTICATION` is enabled: a Google login whose email matches an existing account (for example one created by the email code flow) signs in to that account and links the Google account to it, rather than creating a duplicate.
+
+In docker compose, "Google" is actually [Dex](https://dexidp.io/) (`integration_tests/dex.yaml`): allauth's Google adapter allows each endpoint URL to be overridden (`GOOGLE_AUTHORIZE_URL`, `GOOGLE_ACCESS_TOKEN_URL`, `GOOGLE_ID_TOKEN_ISSUER`), so the stack exercises the production Google code path without real credentials. Sign in as `dex-user@example.com` / `password`. The integration tests cover this flow; against real Google, only a one-off manual check of the console configuration is needed.
 
 ---
 
@@ -73,6 +75,8 @@ DOT exposes the standard OIDC endpoints:
 **Teams and application management.** DOT provides base views for registering and managing OAuth clients (applications). This project extends them: applications belong to a `Team` (models in `iam/users/models.py`), and users manage their teams' applications, members, and allowed email domains under `/o/teams/` (views in `iam/users/views.py`). Users and teams are many-to-many via a `Membership` model.
 
 **Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured (or an application with no team) allows all users. The custom `AuthorizationView` in `iam/users/views.py` intercepts the authorize endpoint and returns 403 if the authenticated user's email domain is not allowed. This check runs on both GET (consent screen) and POST (form submission).
+
+Note that the check applies **only at authorization time**: removing a domain does not revoke access or refresh tokens that were already issued, and relying parties keep their own sessions. A user who loses access stays signed in to downstream applications until their tokens expire.
 
 **Relevant settings:**
 
@@ -115,6 +119,7 @@ This starts:
 - **db** — Postgres 17
 - **mailpit** — catches outbound email; web UI at http://localhost:8025
 - **grafana** — a pre-configured demo relying party at http://localhost:3000
+- **dex** — a local OIDC server standing in for Google on port 5556 (see the Google social login section)
 
 On first start, `manage.py create_demo_apps` seeds a demo user and a Grafana OAuth application. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
 
