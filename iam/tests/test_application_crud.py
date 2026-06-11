@@ -1,19 +1,16 @@
 import pytest
 from django.contrib.auth import get_user_model
-from oauth2_provider.models import get_application_model
+from django.contrib.auth.hashers import check_password
+from django.db import IntegrityError
+from oauth2_provider.models import AbstractApplication, get_application_model
 from users.models import Team
 
 User = get_user_model()
 Application = get_application_model()
 
 _FORM_BASE = {
-    "client_id": "test-client-id",
-    "client_secret": "test-client-secret",
-    "hash_client_secret": False,
     "client_type": Application.CLIENT_CONFIDENTIAL,
-    "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
     "redirect_uris": "http://localhost/callback",
-    "algorithm": "RS256",
 }
 
 
@@ -23,7 +20,6 @@ def other_team_app(db):
     return Application.objects.create(
         name="Other App",
         client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
         redirect_uris="http://localhost/callback",
         team=other_team,
     )
@@ -32,6 +28,35 @@ def other_team_app(db):
 def test_start_page(client):
     response = client.get("/")
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Application model — only authorization-code/RS256/hashed secrets may be stored
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("authorization_grant_type", grant)
+        for grant, _ in AbstractApplication.GRANT_TYPES
+        if grant != Application.GRANT_AUTHORIZATION_CODE
+    ]
+    + [
+        ("algorithm", Application.HS256_ALGORITHM),
+        ("algorithm", Application.NO_ALGORITHM),
+        ("hash_client_secret", False),
+    ],
+)
+def test_disallowed_application_settings_rejected(db, team, field, value):
+    with pytest.raises(IntegrityError):
+        Application.objects.create(
+            name="Bad App",
+            client_type=Application.CLIENT_CONFIDENTIAL,
+            redirect_uris="http://localhost/callback",
+            team=team,
+            **{field: value},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +116,7 @@ def test_cannot_reach_other_teams_app(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("suffix", ["update/", "delete/"])
+@pytest.mark.parametrize("suffix", ["update/", "delete/", "regenerate-secret/"])
 @pytest.mark.parametrize(
     "authed_client,expected_status",
     [("stranger", 404), (None, 302)],
@@ -117,7 +142,7 @@ def test_update_saves_changes(client, owner, team, app):
     client.force_login(owner)
     response = client.post(
         f"/o/teams/{team.pk}/applications/{app.pk}/update/",
-        {**_FORM_BASE, "name": "Renamed App", "client_id": app.client_id},
+        {**_FORM_BASE, "name": "Renamed App"},
     )
     assert response.status_code == 302
     app.refresh_from_db()
@@ -188,3 +213,34 @@ def test_registration_blocked_for_non_member(client, stranger, team):
     )
     assert response.status_code == 404
     assert not Application.objects.filter(name="New App").exists()
+
+
+# ---------------------------------------------------------------------------
+# Server-issued credentials
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("action", ["register", "regenerate"])
+def test_issued_secret_is_valid_and_shown_once(client, owner, team, app, action):
+    client.force_login(owner)
+    if action == "register":
+        response = client.post(
+            f"/o/teams/{team.pk}/applications/register/",
+            {**_FORM_BASE, "name": "New App"},
+        )
+        app = Application.objects.get(name="New App")
+        assert app.client_id
+    else:
+        old_hash = app.client_secret
+        response = client.post(
+            f"/o/teams/{team.pk}/applications/{app.pk}/regenerate-secret/"
+        )
+        app.refresh_from_db()
+        assert app.client_secret != old_hash
+    assert response.status_code == 302
+
+    detail = client.get(response["Location"])
+    assert check_password(detail.context["raw_client_secret"], app.client_secret)
+
+    # The secret is revealed exactly once.
+    assert "raw_client_secret" not in client.get(response["Location"]).context

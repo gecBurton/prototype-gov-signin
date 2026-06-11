@@ -45,10 +45,8 @@ def oauth_app(django_db_setup, django_db_blocker):
             defaults={
                 "name": "Test Client",
                 "client_type": Application.CLIENT_CONFIDENTIAL,
-                "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": REDIRECT_URI,
                 "client_secret": CLIENT_SECRET,
-                "algorithm": "RS256",
                 "skip_authorization": False,
             },
         )
@@ -92,7 +90,6 @@ def app(owner, team):
     return Application.objects.create(
         name="Test App",
         client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
         redirect_uris="http://localhost/callback",
         team=team,
     )

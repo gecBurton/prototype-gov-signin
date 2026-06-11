@@ -32,10 +32,8 @@ class Command(BaseCommand):
             defaults={
                 "name": name,
                 "client_type": Application.CLIENT_CONFIDENTIAL,
-                "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": redirect_uris,
                 "client_secret": client_secret,
-                "algorithm": "RS256",
                 "skip_authorization": True,
             },
         )

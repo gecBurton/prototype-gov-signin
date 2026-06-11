@@ -2,7 +2,7 @@
 
 DEV_ENV := DEBUG=true SECRET_KEY=insecure-dev-key
 
-.PHONY: help install test run migrate makemigrations shell up down db integration-test install-integration format format-check
+.PHONY: help install test run migrate makemigrations demo shell up down db integration-test install-integration format format-check
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -27,6 +27,9 @@ migrate: ## Apply database migrations
 
 makemigrations: ## Create new migrations
 	cd iam && $(DEV_ENV) uv run python manage.py makemigrations
+
+demo: ## Run the OIDC flow demo script
+	cd iam && $(DEV_ENV) uv run python demo.py
 
 shell: ## Open a Django shell
 	cd iam && $(DEV_ENV) uv run python manage.py shell

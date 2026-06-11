@@ -6,6 +6,7 @@ from users.views import (
     ApplicationDelete,
     ApplicationDetail,
     ApplicationRegistration,
+    ApplicationSecretRegenerate,
     ApplicationUpdate,
     AuthorizationView,
     TeamDetail,
@@ -48,6 +49,11 @@ management_urlpatterns = [
         "teams/<uuid:team_pk>/applications/<uuid:pk>/delete/",
         ApplicationDelete.as_view(),
         name="delete",
+    ),
+    path(
+        "teams/<uuid:team_pk>/applications/<uuid:pk>/regenerate-secret/",
+        ApplicationSecretRegenerate.as_view(),
+        name="regenerate-secret",
     ),
 ]
 
