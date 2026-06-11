@@ -17,6 +17,11 @@
     .app-hero{background:#1d70b8}
     .app-hero__content{padding:30px 0 50px}
     .app-hero .govuk-heading-xl,.app-hero .govuk-body-l{color:#fff}
+    .app-hero__image{display:none}
+    @media (min-width:48.0625em){
+      .app-hero__image{display:block;margin-top:30px}
+      .app-hero__image svg{display:block;width:100%;max-width:220px;margin:0 auto}
+    }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
