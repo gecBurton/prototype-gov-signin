@@ -30,7 +30,7 @@ jobs:
         env:
           DEBUG: "true"
           SECRET_KEY: "insecure-ci-key"
-      - run: uv run pytest iam/tests/ -v
+      - run: uv run pytest tests/ -v
         env:
           POSTGRES_HOST: localhost
           POSTGRES_DB: iam

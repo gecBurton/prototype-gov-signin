@@ -11,7 +11,7 @@ install: ## Install dependencies
 	uv sync
 
 test: ## Run tests
-	uv run pytest iam/tests/ -v
+	uv run pytest tests/ -v --cov=iam --cov-report=term-missing
 
 format: ## Run linter
 	uv run ruff check . --select I --fix && uv run ruff format .
