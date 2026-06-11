@@ -40,6 +40,9 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    # 30 days; raise (and consider preload/subdomains) once HTTPS is known
+    # to be stable on the deployed domain.
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30
 
 
 # Application definition

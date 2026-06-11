@@ -106,11 +106,15 @@ class Application(AbstractApplication):
     """An OAuth2/OIDC client, owned and managed by a team."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # A team-less application (admin-created, e.g. the demo Grafana client)
+    # allows all users, so deleting a team must not silently drop its apps'
+    # domain restrictions: PROTECT forces the apps to be deleted (or moved)
+    # first.
     team = models.ForeignKey(
         Team,
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         related_name="applications",
     )
     # Only the authorization-code grant is supported: implicit, password and

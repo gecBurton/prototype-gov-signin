@@ -74,6 +74,8 @@ DOT exposes the standard OIDC endpoints:
 
 **Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured (or an application with no team) allows all users. The custom `AuthorizationView` in `iam/users/views.py` intercepts the authorize endpoint and returns 403 if the authenticated user's email domain is not allowed. This check runs on both GET (consent screen) and POST (form submission).
 
+Note that the check applies **only at authorization time**: removing a domain does not revoke access or refresh tokens that were already issued, and relying parties keep their own sessions. A user who loses access stays signed in to downstream applications until their tokens expire.
+
 **Relevant settings:**
 
 ```python

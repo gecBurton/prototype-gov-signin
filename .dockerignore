@@ -11,3 +11,4 @@ integration_tests/
 .github
 .claude
 .idea
+**/staticfiles

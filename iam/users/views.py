@@ -129,12 +129,18 @@ class TeamDetail(TeamMixin, View):
     def post(self, request, *args, **kwargs):
         email = request.POST.get("email", "").strip()
         User = get_user_model()
+        # One message for both failure modes, so the form does not reveal
+        # which email addresses have accounts.
+        error = (
+            f"Could not add {email}. They need to have signed in to this "
+            "service before, and must not already be a team member."
+        )
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return self._render(request, error=f"No user found with email {email}.")
+            return self._render(request, error=error)
         if user.teams.filter(pk=self.team.pk).exists():
-            return self._render(request, error=f"{email} is already a team member.")
+            return self._render(request, error=error)
         user.teams.add(self.team)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
@@ -142,6 +148,18 @@ class TeamDetail(TeamMixin, View):
 class TeamMemberRemove(TeamMixin, View):
     def post(self, request, *args, **kwargs):
         user_to_remove = get_object_or_404(get_user_model(), pk=kwargs["user_pk"])
+        # A team with no members would be unmanageable except via the admin,
+        # so the last member cannot be removed.
+        is_member = user_to_remove.teams.filter(pk=self.team.pk).exists()
+        if is_member and not self.team.members.exclude(pk=user_to_remove.pk).exists():
+            return render(
+                request,
+                "oauth2_provider/team_detail.html",
+                {
+                    "team": self.team,
+                    "member_error": "You cannot remove the last member of a team.",
+                },
+            )
         user_to_remove.teams.remove(self.team)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 

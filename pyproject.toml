@@ -1,7 +1,7 @@
 [project]
 name = "prototype-gov-signin"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Django OpenID Connect identity provider where teams self-manage their OAuth applications"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
