@@ -207,11 +207,25 @@ SOCIALACCOUNT_PROVIDERS = {
             "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
             "secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
         },
-        "SCOPE": ["profile", "email"],
+        # openid makes the provider return an id_token (Google would anyway;
+        # the Dex stand-in used in docker compose requires it).
+        "SCOPE": ["openid", "profile", "email"],
         "AUTH_PARAMS": {"access_type": "online"},
         "OAUTH_PKCE_ENABLED": True,
     }
 }
+
+# allauth's Google adapter lets each endpoint be overridden, so docker compose
+# points them at a local Dex server and the integration tests can drive the
+# production Google code path without real Google credentials. Leave these
+# unset in production.
+for _key, _env in {
+    "AUTHORIZE_URL": "GOOGLE_AUTHORIZE_URL",
+    "ACCESS_TOKEN_URL": "GOOGLE_ACCESS_TOKEN_URL",
+    "ID_TOKEN_ISSUER": "GOOGLE_ID_TOKEN_ISSUER",
+}.items():
+    if os.environ.get(_env):
+        SOCIALACCOUNT_PROVIDERS["google"][_key] = os.environ[_env]
 
 _oidc_key = os.environ.get("OIDC_RSA_PRIVATE_KEY")
 if not _oidc_key:

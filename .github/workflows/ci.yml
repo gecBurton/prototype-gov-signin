@@ -50,9 +50,6 @@ jobs:
         run: openssl genrsa -out iam/oidc.key 4096
       - name: Start services
         run: docker compose up -d --build
-        env:
-          GOOGLE_CLIENT_ID: ""
-          GOOGLE_CLIENT_SECRET: ""
       - name: Wait for services
         run: |
           timeout 120 sh -c 'until curl -fs http://localhost:8000/ > /dev/null; do sleep 2; done'

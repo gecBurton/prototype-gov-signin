@@ -41,6 +41,8 @@ ACCOUNT_SIGNUP_FIELDS = ["email*"]
 
 **Google social login** is fully wired and activates whenever `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set (the login page shows a "Sign in with Google" button, with the email code flow kept as the fallback for users without a Google account). The OAuth client in the Google console must have `<origin>/accounts/google/login/callback/` registered as a redirect URI for each environment. Because Google only asserts verified email addresses, `SOCIALACCOUNT_EMAIL_AUTHENTICATION` is enabled: a Google login whose email matches an existing account (for example one created by the email code flow) signs in to that account and links the Google account to it, rather than creating a duplicate.
 
+In docker compose, "Google" is actually [Dex](https://dexidp.io/) (`integration_tests/dex.yaml`): allauth's Google adapter allows each endpoint URL to be overridden (`GOOGLE_AUTHORIZE_URL`, `GOOGLE_ACCESS_TOKEN_URL`, `GOOGLE_ID_TOKEN_ISSUER`), so the stack exercises the production Google code path without real credentials. Sign in as `dex-user@example.com` / `password`. The integration tests cover this flow; against real Google, only a one-off manual check of the console configuration is needed.
+
 ---
 
 ## django-oauth-toolkit — how *other services* authenticate their users
@@ -117,6 +119,7 @@ This starts:
 - **db** — Postgres 17
 - **mailpit** — catches outbound email; web UI at http://localhost:8025
 - **grafana** — a pre-configured demo relying party at http://localhost:3000
+- **dex** — a local OIDC server standing in for Google on port 5556 (see the Google social login section)
 
 On first start, `manage.py create_demo_apps` seeds a demo user and a Grafana OAuth application. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
 
