@@ -25,9 +25,7 @@ def _make_app(name, team):
     return Application.objects.create(
         name=name,
         client_type=Application.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
         redirect_uris=REDIRECT_URI,
-        algorithm="RS256",
         skip_authorization=False,
         team=team,
     )

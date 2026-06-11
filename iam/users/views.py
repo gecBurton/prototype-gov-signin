@@ -7,22 +7,22 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import ListView
+from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import get_application_model
 from oauth2_provider.views import application as base_views
 from oauth2_provider.views import base as oidc_base_views
 
 _APPLICATION_FORM_FIELDS = (
     "name",
-    "client_id",
-    "client_secret",
-    "hash_client_secret",
     "client_type",
-    "authorization_grant_type",
     "redirect_uris",
     "post_logout_redirect_uris",
     "allowed_origins",
-    "algorithm",
 )
+
+# Credentials are issued by the server, never chosen by the user. The raw
+# secret is stashed in the session so the detail page can show it exactly once.
+_RAW_SECRET_SESSION_KEY = "application_raw_client_secret"
 
 
 class TeamMixin(LoginRequiredMixin):
@@ -62,14 +62,42 @@ class ApplicationFormMixin(TeamApplicationMixin):
         )
 
 
+def _stash_raw_secret(request, application, raw_secret):
+    request.session[_RAW_SECRET_SESSION_KEY] = {
+        "application": str(application.pk),
+        "secret": raw_secret,
+    }
+
+
 class ApplicationRegistration(ApplicationFormMixin, base_views.ApplicationRegistration):
     def form_valid(self, form):
         form.instance.team = self.team
-        return super().form_valid(form)
+        # Saving hashes the generated secret, so capture the raw value first.
+        raw_secret = form.instance.client_secret
+        response = super().form_valid(form)
+        _stash_raw_secret(self.request, self.object, raw_secret)
+        return response
 
 
 class ApplicationDetail(TeamApplicationMixin, base_views.ApplicationDetail):
-    pass
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        stashed = self.request.session.pop(_RAW_SECRET_SESSION_KEY, None)
+        if stashed and stashed["application"] == str(self.object.pk):
+            context["raw_client_secret"] = stashed["secret"]
+        return context
+
+
+class ApplicationSecretRegenerate(TeamApplicationMixin, View):
+    def post(self, request, *args, **kwargs):
+        application = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
+        raw_secret = generate_client_secret()
+        application.client_secret = raw_secret
+        application.save()
+        _stash_raw_secret(request, application, raw_secret)
+        return redirect(
+            "oauth2_provider:detail", team_pk=self.team.pk, pk=application.pk
+        )
 
 
 class ApplicationUpdate(ApplicationFormMixin, base_views.ApplicationUpdate):

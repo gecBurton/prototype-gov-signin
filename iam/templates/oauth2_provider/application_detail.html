@@ -7,14 +7,28 @@
 
 <h1 class="govuk-heading-l">{{ application.name }}</h1>
 
+{% if raw_client_secret %}
+<div class="govuk-notification-banner govuk-notification-banner--success" role="alert" aria-labelledby="govuk-notification-banner-title" data-module="govuk-notification-banner">
+  <div class="govuk-notification-banner__header">
+    <h2 class="govuk-notification-banner__title" id="govuk-notification-banner-title">Client secret</h2>
+  </div>
+  <div class="govuk-notification-banner__content">
+    <p class="govuk-notification-banner__heading">Copy your client secret now. It will not be shown again.</p>
+    <p class="govuk-body"><code id="raw-client-secret">{{ raw_client_secret }}</code></p>
+  </div>
+</div>
+{% endif %}
+
 <dl class="govuk-summary-list">
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Client ID</dt>
-    <dd class="govuk-summary-list__value"><code>{{ application.client_id }}</code></dd>
+    <dd class="govuk-summary-list__value"><code id="client-id">{{ application.client_id }}</code></dd>
   </div>
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Client secret</dt>
-    <dd class="govuk-summary-list__value"><code>{{ application.client_secret }}</code></dd>
+    <dd class="govuk-summary-list__value">
+      <span class="govuk-hint">Only a secure hash of the secret is stored, so it cannot be shown here. If you have lost the secret, regenerate it below.</span>
+    </dd>
   </div>
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Client type</dt>
@@ -30,16 +44,18 @@
     <dd class="govuk-summary-list__value">{{ application.redirect_uris }}</dd>
   </div>
   {% endif %}
-  {% if application.algorithm %}
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Algorithm</dt>
     <dd class="govuk-summary-list__value">{{ application.algorithm }}</dd>
   </div>
-  {% endif %}
 </dl>
 
 <div class="govuk-button-group">
   <a href="{% url 'oauth2_provider:update' team_pk=team.pk pk=application.pk %}" class="govuk-button">Edit</a>
+  <form method="post" action="{% url 'oauth2_provider:regenerate-secret' team_pk=team.pk pk=application.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">Regenerate secret</button>
+  </form>
   <a href="{% url 'oauth2_provider:delete' team_pk=team.pk pk=application.pk %}" class="govuk-link">Delete application</a>
 </div>
 {% endblock %}

@@ -113,6 +113,38 @@ class Application(AbstractApplication):
         on_delete=models.SET_NULL,
         related_name="applications",
     )
+    # Only the authorization-code grant is supported: implicit, password and
+    # hybrid are deprecated (removed in OAuth 2.1). If we ever need
+    # machine-to-machine clients, client-credentials may have to be re-allowed.
+    authorization_grant_type = models.CharField(
+        max_length=44,
+        choices=[(AbstractApplication.GRANT_AUTHORIZATION_CODE, "Authorization code")],
+        default=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+    )
+    algorithm = models.CharField(
+        max_length=5,
+        choices=[(AbstractApplication.RS256_ALGORITHM, "RSA with SHA-2 256")],
+        default=AbstractApplication.RS256_ALGORITHM,
+    )
+    # Client secrets are always stored hashed; a lost secret is replaced,
+    # never recovered.
+    hash_client_secret = models.BooleanField(default=True, editable=False)
 
     class Meta(AbstractApplication.Meta):
         swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE
+                ),
+                name="application_grant_type_authorization_code",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(algorithm=AbstractApplication.RS256_ALGORITHM),
+                name="application_algorithm_rs256",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(hash_client_secret=True),
+                name="application_hash_client_secret",
+            ),
+        ]
