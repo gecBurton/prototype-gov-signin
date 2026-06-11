@@ -84,6 +84,25 @@ def test_email_verified_after_code_confirmed(anon_client, mailoutbox):
     assert anon_client.session["_auth_user_id"] == str(user.pk)
 
 
+def test_signing_in_does_not_flash_a_message(anon_client, mailoutbox):
+    """The signed-in state is shown by the header profile link instead."""
+    # follow=True renders the confirm page, consuming the "code sent" flash
+    # the same way a browser would
+    anon_client.post(
+        "/accounts/login/code/", {"email": "quiet@example.com"}, follow=True
+    )
+
+    response = anon_client.post(
+        "/accounts/login/code/confirm/",
+        {"code": _login_code(mailoutbox)},
+        follow=True,
+    )
+
+    # Neither "Successfully signed in" nor "You have confirmed" — no
+    # notification banner at all.
+    assert "govuk-notification-banner" not in response.content.decode()
+
+
 def test_wrong_code_does_not_verify_email(anon_client, mailoutbox):
     email = "unconfirmed@example.com"
     anon_client.post("/accounts/login/code/", {"email": email})

@@ -1,0 +1,18 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Your profile{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">Your profile</h1>
+
+<p class="govuk-body">When you sign in to an application with Public Sector Sign-in, it receives this information about you.</p>
+
+<dl class="govuk-summary-list">
+  {% for claim, value in claims.items %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key"><code>{{ claim }}</code></dt>
+    <dd class="govuk-summary-list__value">{{ value }}</dd>
+  </div>
+  {% endfor %}
+</dl>
+{% endblock %}

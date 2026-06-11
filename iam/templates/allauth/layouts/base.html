@@ -77,6 +77,11 @@
                   {% if '/o/teams/' in request.path %}<strong class="govuk-service-navigation__active-fallback">Applications</strong>{% else %}Applications{% endif %}
                 </a>
               </li>
+              <li class="govuk-service-navigation__item {% if request.path == '/accounts/profile/' %}govuk-service-navigation__item--active{% endif %}">
+                <a class="govuk-service-navigation__link" href="{% url 'profile' %}" {% if request.path == '/accounts/profile/' %}aria-current="page"{% endif %}>
+                  {% if request.path == '/accounts/profile/' %}<strong class="govuk-service-navigation__active-fallback">{{ request.user.email }}</strong>{% else %}{{ request.user.email }}{% endif %}
+                </a>
+              </li>
               <li class="govuk-service-navigation__item">
                 <a class="govuk-service-navigation__link" href="/accounts/logout/">Sign out</a>
               </li>
