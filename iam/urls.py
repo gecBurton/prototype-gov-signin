@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views.generic import RedirectView, TemplateView
 from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
 from users.views import (
@@ -9,6 +9,7 @@ from users.views import (
     ApplicationSecretRegenerate,
     ApplicationUpdate,
     AuthorizationView,
+    DiscoveryInfoView,
     TeamDetail,
     TeamDomainAdd,
     TeamDomainRemove,
@@ -61,8 +62,34 @@ authorize_urlpatterns = [
     path("authorize/", AuthorizationView.as_view(), name="authorize"),
 ]
 
-# Replace the default authorize/ with our domain-checking view.
-filtered_base_urlpatterns = [p for p in base_urlpatterns if p.name != "authorize"]
+# Drop endpoints the server cannot honour:
+#  - authorize/ is replaced by our domain-checking AuthorizationView above;
+#  - the device-authorization grant is unusable (every Application is
+#    constrained to the authorization-code grant), so don't expose its
+#    endpoints at all.
+_DROPPED_BASE_NAMES = {
+    "authorize",
+    "device-authorization",
+    "device",
+    "device-confirm",
+    "device-grant-status",
+}
+filtered_base_urlpatterns = [
+    p for p in base_urlpatterns if p.name not in _DROPPED_BASE_NAMES
+]
+
+# Replace the toolkit's discovery document with one that advertises only what
+# we honour (RS256 / S256 / code); see DiscoveryInfoView.
+discovery_urlpatterns = [
+    re_path(
+        r"^\.well-known/openid-configuration/?$",
+        DiscoveryInfoView.as_view(),
+        name="oidc-connect-discovery-info",
+    ),
+]
+filtered_oidc_urlpatterns = [
+    p for p in oidc_urlpatterns if p.name != "oidc-connect-discovery-info"
+]
 
 urlpatterns = [
     path("", TemplateView.as_view(template_name="start.html"), name="start"),
@@ -74,7 +101,8 @@ urlpatterns = [
                 authorize_urlpatterns
                 + filtered_base_urlpatterns
                 + management_urlpatterns
-                + oidc_urlpatterns,
+                + discovery_urlpatterns
+                + filtered_oidc_urlpatterns,
                 "oauth2_provider",
             )
         ),
@@ -88,6 +116,14 @@ urlpatterns = [
     # include so it wins; covers GET and POST.
     path(
         "accounts/signup/",
+        RedirectView.as_view(pattern_name="account_login", permanent=False),
+    ),
+    # Password reset is dead surface here: accounts have unusable passwords and
+    # there is no password login (sign-in is by email code or Google). Close the
+    # entry point so it cannot be used to send reset emails to arbitrary
+    # addresses. Listed before the allauth include so it wins.
+    path(
+        "accounts/password/reset/",
         RedirectView.as_view(pattern_name="account_login", permanent=False),
     ),
     path("accounts/", include("allauth.urls")),
