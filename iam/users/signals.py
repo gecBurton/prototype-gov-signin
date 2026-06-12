@@ -14,7 +14,8 @@ def sync_admin_status(sender, request, user, **kwargs):
     admin_users = settings.ADMIN_USERS
     if admin_users is None:
         return
-    should_be_admin = user.email.lower() in {email.lower() for email in admin_users}
+    # settings.ADMIN_USERS is already lowercased at parse time.
+    should_be_admin = user.email.lower() in admin_users
     if user.is_staff != should_be_admin or user.is_superuser != should_be_admin:
         user.is_staff = should_be_admin
         user.is_superuser = should_be_admin

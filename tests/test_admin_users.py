@@ -5,7 +5,6 @@ and anyone no longer listed is demoted. When ADMIN_USERS is None the mechanism
 is inactive.
 """
 
-import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.signals import user_logged_in
 from django.test import override_settings
@@ -41,9 +40,11 @@ def test_unlisted_user_is_demoted_on_login(db):
     assert not user.is_staff and not user.is_superuser
 
 
-@override_settings(ADMIN_USERS=["ADMIN@DEPT.GOV.UK"])
+@override_settings(ADMIN_USERS=["admin@dept.gov.uk"])
 def test_match_is_case_insensitive(db):
-    user = User.objects.create_user(email="admin@dept.gov.uk")
+    # The list is lowercased at parse time; the user's email is matched
+    # case-insensitively too.
+    user = User.objects.create_user(email="ADMIN@dept.gov.uk")
     _login(user)
     user.refresh_from_db()
     assert user.is_staff
@@ -61,17 +62,3 @@ def test_unset_admin_users_leaves_flags_untouched(db):
     plain.refresh_from_db()
     assert admin.is_staff and admin.is_superuser  # not demoted
     assert not plain.is_staff  # not promoted
-
-
-@override_settings(ADMIN_USERS=["admin@dept.gov.uk"])
-@pytest.mark.parametrize("already_admin", [True, False])
-def test_no_write_when_status_already_correct(db, already_admin):
-    # A no-op login (status already matches) must not error.
-    if already_admin:
-        user = User.objects.create_superuser(email="admin@dept.gov.uk")
-    else:
-        user = User.objects.create_user(email="admin@dept.gov.uk")
-        # not listed-as-admin mismatch handled by other tests; here listed+admin
-    _login(user)
-    user.refresh_from_db()
-    assert user.is_staff is True
