@@ -276,6 +276,12 @@ OAUTH2_PROVIDER = {
     # client here can use. RS256-only and S256-only are trimmed from the
     # discovery document in users.views.DiscoveryInfoView.
     "OIDC_RESPONSE_TYPES_SUPPORTED": ["code"],
+    # OIDC RP-initiated logout: a relying party can end the user's session here
+    # (end_session_endpoint, advertised in the discovery document). The toolkit
+    # validates post_logout_redirect_uri against the application's registered
+    # values, always shows a confirmation page, and revokes the user's tokens on
+    # logout (its DELETE_TOKENS default).
+    "OIDC_RP_INITIATED_LOGOUT_ENABLED": True,
     "SCOPES": {
         "openid": "OpenID Connect scope",
         "profile": "User profile",
