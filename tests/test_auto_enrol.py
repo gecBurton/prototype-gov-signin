@@ -1,15 +1,11 @@
-import re
-
 import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from django.test import Client
 
+from tests.conftest import login_code
+
 User = get_user_model()
-
-
-def _login_code(mailoutbox) -> str:
-    return re.search(r"\b([A-Z0-9]{4}-[A-Z0-9]{4})\b", mailoutbox[-1].body).group(1)
 
 
 @pytest.fixture
@@ -75,7 +71,7 @@ def test_email_verified_after_code_confirmed(anon_client, mailoutbox):
     anon_client.post("/accounts/login/code/", {"email": email})
 
     response = anon_client.post(
-        "/accounts/login/code/confirm/", {"code": _login_code(mailoutbox)}
+        "/accounts/login/code/confirm/", {"code": login_code(mailoutbox)}
     )
 
     assert response.status_code == 302

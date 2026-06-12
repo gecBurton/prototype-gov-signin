@@ -1,17 +1,13 @@
-import base64
-import hashlib
-import secrets
-
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
 from users.models import Team
 from users.views import _is_domain_allowed
 
+from tests.conftest import REDIRECT_URI, authorize_params, pkce_pair
+
 User = get_user_model()
 Application = get_application_model()
-
-REDIRECT_URI = "http://localhost/callback"
 
 
 def _make_team(name, domains):
@@ -57,20 +53,8 @@ def open_app(db):
 
 
 def _authorize_params(app):
-    code_verifier = secrets.token_urlsafe(48)
-    code_challenge = (
-        base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
-        .rstrip(b"=")
-        .decode()
-    )
-    return {
-        "client_id": app.client_id,
-        "response_type": "code",
-        "scope": "openid",
-        "redirect_uri": REDIRECT_URI,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-    }
+    _, code_challenge = pkce_pair()
+    return authorize_params(client_id=app.client_id, code_challenge=code_challenge)
 
 
 # ---------------------------------------------------------------------------
