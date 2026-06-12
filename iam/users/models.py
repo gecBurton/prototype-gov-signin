@@ -26,23 +26,26 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email, password, **extra_fields):
+    def _create_user(self, email, **extra_fields):
         if not email:
             raise ValueError("The email must be set")
         user = self.model(email=self.normalize_email(email), **extra_fields)
-        user.set_password(password)
+        # This service has no passwords: every account authenticates via email
+        # login-code or Google. Any password argument (e.g. from
+        # createsuperuser) is intentionally ignored.
+        user.set_unusable_password()
         user.save(using=self._db)
         return user
 
     def create_user(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(email, **extra_fields)
 
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(email, **extra_fields)
 
 
 class User(AbstractUser):
