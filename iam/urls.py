@@ -118,13 +118,17 @@ urlpatterns = [
         "accounts/signup/",
         RedirectView.as_view(pattern_name="account_login", permanent=False),
     ),
-    # Password reset is dead surface here: accounts have unusable passwords and
-    # there is no password login (sign-in is by email code or Google). Close the
-    # entry point so it cannot be used to send reset emails to arbitrary
-    # addresses. Listed before the allauth include so it wins.
-    path(
-        "accounts/password/reset/",
-        RedirectView.as_view(pattern_name="account_login", permanent=False),
+    # This service has no passwords: accounts authenticate by email code or
+    # Google and have unusable passwords. Close allauth's password endpoints so
+    # the notion of a password cannot re-enter — reset can't email arbitrary
+    # addresses, and change/set can't give an account a usable password. Listed
+    # before the allauth include so they win.
+    *(
+        path(
+            f"accounts/password/{action}/",
+            RedirectView.as_view(pattern_name="account_login", permanent=False),
+        )
+        for action in ("reset", "change", "set")
     ),
     path("accounts/", include("allauth.urls")),
 ]
