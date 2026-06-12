@@ -1,0 +1,35 @@
+{% extends "oauth2_provider/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Sign out" %}{% endblock %}
+
+{% block inner_content %}
+  {% if not error %}
+    {% if application %}
+      <h1 class="govuk-heading-l">{% trans "Sign out of" %} {{ application.name }}?</h1>
+    {% else %}
+      <h1 class="govuk-heading-l">{% trans "Sign out?" %}</h1>
+    {% endif %}
+
+    <p class="govuk-body">{% trans "This will end your Public Sector Sign-in session." %}</p>
+
+    <form id="logoutForm" method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        {% if field.is_hidden %}{{ field }}{% endif %}
+      {% endfor %}
+
+      <div class="govuk-button-group">
+        <button type="submit" name="allow" value="Logout" class="govuk-button" data-module="govuk-button">
+          {% trans "Sign out" %}
+        </button>
+        <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">
+          {% trans "Cancel" %}
+        </button>
+      </div>
+    </form>
+  {% else %}
+    <h1 class="govuk-heading-l">{% trans "Error" %}</h1>
+    <p class="govuk-body">{{ error.description }}</p>
+  {% endif %}
+{% endblock %}

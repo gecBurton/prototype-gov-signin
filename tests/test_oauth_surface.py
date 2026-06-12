@@ -104,3 +104,32 @@ def test_password_reset_entry_closed(client, db):
     response = client.get("/accounts/password/reset/")
     assert response.status_code == 302
     assert "/accounts/login/" in response["Location"]
+
+
+# ---------------------------------------------------------------------------
+# RP-initiated logout (end_session_endpoint)
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_advertises_end_session_endpoint(discovery):
+    assert discovery["end_session_endpoint"].endswith("/o/logout/")
+
+
+def test_logout_endpoint_shows_confirmation(client, db):
+    # Previously this returned 500 (the feature was routed but disabled).
+    user = User.objects.create_user(email="confirm@example.com")
+    client.force_login(user)
+    response = client.get("/o/logout/")
+    assert response.status_code == 200
+    assert b"Sign out" in response.content
+
+
+def test_logout_confirmation_ends_the_session(client, db):
+    user = User.objects.create_user(email="logout@example.com")
+    client.force_login(user)
+    assert "_auth_user_id" in client.session
+
+    response = client.post("/o/logout/", {"allow": "Logout"})
+
+    assert response.status_code == 302  # back to the home page
+    assert "_auth_user_id" not in client.session

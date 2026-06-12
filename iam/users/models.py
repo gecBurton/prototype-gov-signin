@@ -142,26 +142,27 @@ class Application(AbstractApplication):
 
     def clean(self):
         super().clean()
-        # Require https for redirect URIs, allowing http only for loopback
-        # hosts. The parent permits http anywhere; tighten it so an
-        # authorization code can never be sent to a cleartext, non-local
-        # endpoint. Enforced on the registration/update form (which validates);
-        # ORM-seeded apps such as the demo bypass this, and the demo's
-        # http://localhost redirect is loopback anyway.
-        for uri in self.redirect_uris.split():
-            parsed = urlparse(uri)
-            if (
-                parsed.scheme == "http"
-                and parsed.hostname not in _LOOPBACK_REDIRECT_HOSTS
-            ):
-                raise ValidationError(
-                    {
-                        "redirect_uris": (
-                            f"{uri} must use https. http is only allowed for "
-                            "loopback addresses (localhost) during development."
-                        )
-                    }
-                )
+        # Require https for redirect URIs (and post-logout redirect URIs),
+        # allowing http only for loopback hosts. The parent permits http
+        # anywhere; tighten it so an authorization code — or a logout redirect —
+        # can never be sent to a cleartext, non-local endpoint. Enforced on the
+        # registration/update form (which validates); ORM-seeded apps such as
+        # the demo bypass this, and the demo's http://localhost is loopback.
+        for field in ("redirect_uris", "post_logout_redirect_uris"):
+            for uri in getattr(self, field).split():
+                parsed = urlparse(uri)
+                if (
+                    parsed.scheme == "http"
+                    and parsed.hostname not in _LOOPBACK_REDIRECT_HOSTS
+                ):
+                    raise ValidationError(
+                        {
+                            field: (
+                                f"{uri} must use https. http is only allowed for "
+                                "loopback addresses (localhost) during development."
+                            )
+                        }
+                    )
 
     class Meta(AbstractApplication.Meta):
         swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"

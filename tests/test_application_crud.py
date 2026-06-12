@@ -246,6 +246,22 @@ def test_registration_enforces_https_redirect(
         assert not created
 
 
+def test_registration_enforces_https_post_logout_redirect(client, owner, team):
+    # The https rule applies to post-logout redirect URIs too.
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/register/",
+        {
+            "client_type": Application.CLIENT_CONFIDENTIAL,
+            "redirect_uris": "https://app.gov.uk/callback",
+            "post_logout_redirect_uris": "http://app.gov.uk/signed-out",
+            "name": "Logout App",
+        },
+    )
+    assert response.status_code == 200
+    assert not Application.objects.filter(name="Logout App").exists()
+
+
 # ---------------------------------------------------------------------------
 # Server-issued credentials
 # ---------------------------------------------------------------------------
