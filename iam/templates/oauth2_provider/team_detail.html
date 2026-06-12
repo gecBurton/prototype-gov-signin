@@ -24,6 +24,8 @@
 
 <h2 class="govuk-heading-m">Applications</h2>
 
+<p class="govuk-body">Applications are the services this team has registered to sign users in with Public Sector Sign-in. Each one gets its own client ID and secret.</p>
+
 {% if team.applications.all %}
 <ul class="govuk-list">
   {% for application in team.applications.all %}
@@ -37,6 +39,8 @@
 <a href="{% url 'oauth2_provider:register' team_pk=team.pk %}" class="govuk-button" data-module="govuk-button">Register a new application</a>
 
 <h2 class="govuk-heading-m">Members</h2>
+
+<p class="govuk-body">Anyone in this team can manage its applications, members, and allowed email domains.</p>
 
 <dl class="govuk-summary-list">
   {% for member in team.members.all %}
