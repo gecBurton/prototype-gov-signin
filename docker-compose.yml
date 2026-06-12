@@ -23,10 +23,47 @@ services:
 
   iam:
     build: .
-    command: >
-      sh -c "cd iam && uv run python manage.py migrate &&
-             uv run python manage.py create_demo_apps &&
-             uv run python manage.py runserver 0.0.0.0:8000"
+    # Seeds the demo relying party (Grafana) and a demo user so `make up` is a
+    # working end-to-end demo and the integration tests have data to drive. This
+    # lives here, in the compose layer that owns the demo stack, rather than as
+    # an application management command.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cd iam
+        uv run python manage.py migrate
+        uv run python manage.py shell <<'PYEOF'
+        from allauth.account.models import EmailAddress
+        from django.contrib.auth import get_user_model
+        from oauth2_provider.models import get_application_model
+
+        User = get_user_model()
+        Application = get_application_model()
+
+        user, created = User.objects.get_or_create(email="demo@example.com")
+        if created:
+            user.set_unusable_password()
+            user.save()
+        EmailAddress.objects.get_or_create(
+            user=user,
+            email="demo@example.com",
+            defaults={"primary": True, "verified": True},
+        )
+
+        Application.objects.update_or_create(
+            client_id="grafana",
+            defaults={
+                "name": "Grafana",
+                "client_type": Application.CLIENT_CONFIDENTIAL,
+                "redirect_uris": "http://localhost:3000/login/generic_oauth",
+                "client_secret": "grafana-secret",
+                "skip_authorization": True,
+            },
+        )
+        PYEOF
+        uv run python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
     volumes:
