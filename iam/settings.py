@@ -163,6 +163,17 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
+# Admin access is config-driven: these emails are granted staff + superuser on
+# login, and any other staff/superuser is demoted on their next login (the list
+# is authoritative). Unset means "not managed here" — flags are left untouched.
+# Comma-separated, case-insensitive; see users.signals.sync_admin_status.
+_admin_users = os.environ.get("ADMIN_USERS")
+ADMIN_USERS = (
+    [email.strip().lower() for email in _admin_users.split(",") if email.strip()]
+    if _admin_users is not None
+    else None
+)
+
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*"]

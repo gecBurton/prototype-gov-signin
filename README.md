@@ -129,6 +129,8 @@ The `SECRET_KEY` environment variable is always required — there is no fallbac
 
 Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` is set, codes are sent via GOV.UK Notify; otherwise if `EMAIL_HOST` is set, plain SMTP is used (docker compose points this at Mailpit); otherwise emails are printed to the console.
 
+**Admin access** is config-driven via `ADMIN_USERS` — a comma-separated, case-insensitive list of emails (e.g. `ADMIN_USERS=alice@cabinetoffice.gov.uk,bob@cabinetoffice.gov.uk`). On each login, listed users are granted Django admin access (staff + superuser) and anyone no longer listed is demoted, so the env var is the single source of truth. Admins sign in to `/admin/` through the normal allauth flow (email code or Google); there is no admin password. Leaving `ADMIN_USERS` unset means the mechanism is inactive and existing flags are left untouched.
+
 ## Running tests
 
 ### Unit tests

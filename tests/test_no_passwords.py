@@ -6,10 +6,8 @@ password-checking auth backend.
 """
 
 import pytest
-from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
 
 User = get_user_model()
 
@@ -65,27 +63,3 @@ def test_password_endpoints_are_closed(client, db, path):
     response = client.get(path)
     assert response.status_code == 302
     assert "/accounts/login/" in response["Location"]
-
-
-# ---------------------------------------------------------------------------
-# promote_user is passwordless
-# ---------------------------------------------------------------------------
-
-
-def test_promote_user_makes_admin_without_a_password(db):
-    User.objects.create_user(email="admin@dept.gov.uk")
-
-    call_command("promote_user", "admin@dept.gov.uk")
-
-    user = User.objects.get(email="admin@dept.gov.uk")
-    assert user.is_staff and user.is_superuser
-    assert not user.has_usable_password()
-    assert EmailAddress.objects.filter(
-        user=user, email="admin@dept.gov.uk", verified=True
-    ).exists()
-
-
-def test_promote_user_rejects_a_password_option(db):
-    User.objects.create_user(email="np@dept.gov.uk")
-    with pytest.raises(Exception):
-        call_command("promote_user", "np@dept.gov.uk", "--password", "secret")
