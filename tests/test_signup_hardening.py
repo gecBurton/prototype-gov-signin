@@ -14,9 +14,7 @@ The fix has three parts, covered here:
 """
 
 import base64
-import hashlib
 import json
-import secrets
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
@@ -25,7 +23,13 @@ from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
 from validators import OIDCValidator
 
-from tests.conftest import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
+from tests.conftest import (
+    CLIENT_ID,
+    CLIENT_SECRET,
+    REDIRECT_URI,
+    authorize_params,
+    pkce_pair,
+)
 
 User = get_user_model()
 
@@ -96,20 +100,8 @@ def test_unverified_session_cannot_mint_a_verified_id_token(client, oauth_app):
     user = User.objects.create_user(email="unverified@cabinetoffice.gov.uk")
     client.force_login(user)
 
-    verifier = secrets.token_urlsafe(48)
-    challenge = (
-        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        .rstrip(b"=")
-        .decode()
-    )
-    params = {
-        "client_id": CLIENT_ID,
-        "response_type": "code",
-        "scope": "openid email",
-        "redirect_uri": REDIRECT_URI,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-    }
+    verifier, challenge = pkce_pair()
+    params = authorize_params(scope="openid email", code_challenge=challenge)
 
     response = client.post("/o/authorize/", {**params, "allow": "Authorize"})
     assert response.status_code == 302

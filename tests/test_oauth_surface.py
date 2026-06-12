@@ -12,7 +12,7 @@ import json
 import pytest
 from django.contrib.auth import get_user_model
 
-from tests.conftest import CLIENT_ID, REDIRECT_URI
+from tests.conftest import authorize_params
 
 User = get_user_model()
 
@@ -59,14 +59,7 @@ def test_discovery_keeps_core_endpoints(discovery):
 
 
 def _authorize_params(method):
-    return {
-        "client_id": CLIENT_ID,
-        "response_type": "code",
-        "scope": "openid",
-        "redirect_uri": REDIRECT_URI,
-        "code_challenge": "x" * 43,
-        "code_challenge_method": method,
-    }
+    return authorize_params(code_challenge="x" * 43, code_challenge_method=method)
 
 
 @pytest.mark.parametrize(
