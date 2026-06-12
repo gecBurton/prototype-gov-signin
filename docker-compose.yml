@@ -76,6 +76,8 @@ services:
       POSTGRES_USER: iam
       POSTGRES_PASSWORD: iam
       ALLOWED_HOSTS: "localhost,iam,127.0.0.1"
+      # The demo user is granted Django admin access on login (see ADMIN_USERS).
+      ADMIN_USERS: "demo@example.com"
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
       # "Sign in with Google" is wired to the local Dex stand-in (see the dex
