@@ -122,23 +122,9 @@ else:
     )
 
 
-# Password validation
-# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
-
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
-    },
-]
+# No password validation: this service has no passwords. Accounts authenticate
+# via email login-code or Google and are created with an unusable password, so
+# there is nothing to validate (AUTH_PASSWORD_VALIDATORS is left empty).
 
 
 # Internationalization
@@ -169,8 +155,11 @@ OAUTH2_PROVIDER_APPLICATION_MODEL = "users.Application"
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
 
+# Only allauth's backend — there is no password authentication. allauth's
+# AuthenticationBackend subclasses Django's ModelBackend, so it still provides
+# the admin's permission lookups; Django's password-checking ModelBackend is
+# dropped deliberately.
 AUTHENTICATION_BACKENDS = [
-    "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
