@@ -121,7 +121,7 @@ This starts:
 - **grafana** — a pre-configured demo relying party at http://localhost:3000
 - **dex** — a local OIDC server standing in for Google on port 5556 (see the Google social login section)
 
-On first start, `manage.py create_demo_apps` seeds a demo user and a Grafana OAuth application. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
+On first start, the `iam` service (see `docker-compose.yml`) seeds a demo user and a Grafana OAuth application. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
 
 ## Configuration
 
