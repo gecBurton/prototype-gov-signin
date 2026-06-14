@@ -101,7 +101,11 @@ urlpatterns = [
     # is then "signed in via allauth AND is_staff".
     path(
         "admin/login/",
-        RedirectView.as_view(pattern_name="account_login", permanent=False),
+        # query_string=True carries the admin's ?next= through to allauth so a
+        # deep link into the admin survives the sign-in round-trip.
+        RedirectView.as_view(
+            pattern_name="account_login", permanent=False, query_string=True
+        ),
     ),
     path("admin/", admin.site.urls),
     path(
