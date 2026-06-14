@@ -149,6 +149,53 @@ def test_update_saves_changes(client, owner, team, app):
     assert app.name == "Renamed App"
 
 
+def test_update_saves_new_fields(client, owner, team, app):
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {
+            **_FORM_BASE,
+            "name": app.name,
+            "description": "Our service",
+            "main_app_url": "https://service.gov.uk",
+            "additional_emails": "VIP@example.com  tester@example.com",
+        },
+    )
+    assert response.status_code == 302
+    app.refresh_from_db()
+    assert app.description == "Our service"
+    assert app.main_app_url == "https://service.gov.uk"
+    # Stored normalised to lowercase, space separated.
+    assert app.additional_emails == "vip@example.com tester@example.com"
+
+
+@pytest.mark.parametrize(
+    "prompt_posted,expected_skip",
+    [({"prompt_for_consent": "on"}, False), ({}, True)],
+)
+def test_prompt_for_consent_inverts_skip_authorization(
+    client, owner, team, app, prompt_posted, expected_skip
+):
+    client.force_login(owner)
+    client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {**_FORM_BASE, "name": app.name, **prompt_posted},
+    )
+    app.refresh_from_db()
+    assert app.skip_authorization is expected_skip
+
+
+def test_update_rejects_invalid_additional_email(client, owner, team, app):
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {**_FORM_BASE, "name": app.name, "additional_emails": "not-an-email"},
+    )
+    assert response.status_code == 200  # redisplayed with error
+    app.refresh_from_db()
+    assert app.additional_emails == ""
+
+
 # ---------------------------------------------------------------------------
 # ApplicationDelete
 # ---------------------------------------------------------------------------

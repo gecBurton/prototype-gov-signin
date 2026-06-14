@@ -28,10 +28,32 @@
     <dt class="govuk-summary-list__key">Client type</dt>
     <dd class="govuk-summary-list__value">{{ application.client_type }}</dd>
   </div>
+  {% if application.description %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Description</dt>
+    <dd class="govuk-summary-list__value">{{ application.description }}</dd>
+  </div>
+  {% endif %}
+  {% if application.main_app_url %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Main app URL</dt>
+    <dd class="govuk-summary-list__value"><a class="govuk-link" href="{{ application.main_app_url }}">{{ application.main_app_url }}</a></dd>
+  </div>
+  {% endif %}
   {% if application.redirect_uris %}
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Redirect URIs</dt>
     <dd class="govuk-summary-list__value">{{ application.redirect_uris }}</dd>
+  </div>
+  {% endif %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Prompt for consent</dt>
+    <dd class="govuk-summary-list__value">{% if application.skip_authorization %}No{% else %}Yes{% endif %}</dd>
+  </div>
+  {% if application.additional_emails %}
+  <div class="govuk-summary-list__row">
+    <dt class="govuk-summary-list__key">Additional emails</dt>
+    <dd class="govuk-summary-list__value">{{ application.additional_emails }}</dd>
   </div>
   {% endif %}
 </dl>

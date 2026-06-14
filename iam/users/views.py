@@ -3,7 +3,6 @@ from functools import cached_property
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.forms.models import modelform_factory
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -15,13 +14,7 @@ from oauth2_provider.views import application as base_views
 from oauth2_provider.views import base as oidc_base_views
 from oauth2_provider.views import oidc as oidc_views
 
-_APPLICATION_FORM_FIELDS = (
-    "name",
-    "client_type",
-    "redirect_uris",
-    "post_logout_redirect_uris",
-    "allowed_origins",
-)
+from users.forms import ApplicationForm
 
 # Credentials are issued by the server, never chosen by the user. The raw
 # secret is stashed in the session so the detail page can show it exactly once.
@@ -54,9 +47,7 @@ class TeamApplicationMixin(TeamMixin):
 
 class ApplicationFormMixin(TeamApplicationMixin):
     def get_form_class(self):
-        return modelform_factory(
-            get_application_model(), fields=_APPLICATION_FORM_FIELDS
-        )
+        return ApplicationForm
 
     def get_success_url(self):
         return reverse(
@@ -196,6 +187,10 @@ class TeamDomainRemove(TeamMixin, View):
 
 def _is_domain_allowed(application, email):
     if application.team is None:
+        return True
+    # Individually allow-listed addresses (VIPs, pentesters) bypass the team's
+    # domain restriction.
+    if email.lower() in application.additional_email_list:
         return True
     allowed = application.team.allowed_email_domains
     labels = email.rsplit("@", 1)[-1].lower().split(".")

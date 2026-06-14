@@ -1,8 +1,62 @@
 from allauth.account.forms import RequestLoginCodeForm
 from allauth.account.models import EmailAddress
+from django import forms
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from oauth2_provider.models import get_application_model
 
 User = get_user_model()
+
+
+class ApplicationForm(forms.ModelForm):
+    """Create/update form for an OAuth application.
+
+    Surfaces the model's own fields plus ``prompt_for_consent``, a friendlier
+    inverse of the toolkit's ``skip_authorization`` flag: ticking it shows the
+    consent screen, leaving it unticked skips straight through.
+    """
+
+    prompt_for_consent = forms.BooleanField(
+        required=False,
+        label="Prompt for consent",
+        help_text=(
+            "Show users a consent screen the first time they sign in to this "
+            "application. Leave unticked to skip it."
+        ),
+    )
+
+    class Meta:
+        model = get_application_model()
+        fields = (
+            "name",
+            "description",
+            "main_app_url",
+            "client_type",
+            "redirect_uris",
+            "post_logout_redirect_uris",
+            "allowed_origins",
+            "additional_emails",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["prompt_for_consent"].initial = not self.instance.skip_authorization
+
+    def clean_additional_emails(self):
+        emails = []
+        for token in self.cleaned_data["additional_emails"].split():
+            email = token.lower()
+            try:
+                validate_email(email)
+            except ValidationError:
+                raise ValidationError(f"{token} is not a valid email address.")
+            emails.append(email)
+        return " ".join(emails)
+
+    def save(self, commit=True):
+        self.instance.skip_authorization = not self.cleaned_data["prompt_for_consent"]
+        return super().save(commit=commit)
 
 
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
