@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -259,10 +260,35 @@ if not _oidc_key:
     if _key_path.exists():
         _oidc_key = _key_path.read_text()
 
+def _pkce_required(client_id):
+    """Require PKCE for public clients; leave it optional for confidential ones.
+
+    The toolkit default makes PKCE mandatory for *every* client. That is the
+    right bar for public clients (SPAs/native apps) — they hold no secret, so
+    without PKCE an intercepted authorization code is game over. A confidential
+    client is different: it authenticates at the token endpoint with its client
+    secret, which already prevents code exchange by an interceptor, so PKCE is
+    belt-and-braces rather than load-bearing. Relaxing it for confidential
+    clients admits the inherited pre-PKCE server-side web apps without listing
+    each client_id, while never weakening a public client. Clients that *do*
+    send a challenge are still held to S256 (see users.views._reject_weak_pkce).
+    Unknown client_ids fail closed (PKCE required).
+    """
+    Application = apps.get_model("users", "Application")
+    try:
+        application = Application.objects.get(client_id=client_id)
+    except Application.DoesNotExist:
+        return True
+    return application.client_type != Application.CLIENT_CONFIDENTIAL
+
+
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "OIDC_RSA_PRIVATE_KEY": _oidc_key,
     "OAUTH2_VALIDATOR_CLASS": "validators.OIDCValidator",
+    # Public clients must use PKCE; confidential clients (protected by their
+    # secret) may skip it. See _pkce_required above.
+    "PKCE_REQUIRED": _pkce_required,
     # Short-lived access tokens (default is 10 hours). This service exists to
     # gate access, so a token should not outlive a change in authorization by
     # long. Relying parties refresh as needed. NB: refresh tokens are not

@@ -12,9 +12,13 @@ import json
 import pytest
 from django.contrib.auth import get_user_model
 
-from tests.conftest import authorize_params
+from oauth2_provider.models import get_application_model
+
+from tests.conftest import REDIRECT_URI, authorize_params
+from users.models import Team
 
 User = get_user_model()
+Application = get_application_model()
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +78,52 @@ def test_authorize_requires_s256_pkce(client, db, oauth_app, method, expected_st
     client.force_login(user)
     response = client.get("/o/authorize/", _authorize_params(method))
     assert response.status_code == expected_status
+
+
+# ---------------------------------------------------------------------------
+# PKCE is mandatory for public clients but optional for confidential ones
+# (confidential clients are protected by their secret; this admits inherited
+# pre-PKCE web apps without weakening public clients). See settings._pkce_required.
+# ---------------------------------------------------------------------------
+
+
+def _authorize_without_pkce(client_id):
+    return {
+        "client_id": client_id,
+        "response_type": "code",
+        "scope": "openid",
+        "redirect_uri": REDIRECT_URI,
+    }
+
+
+@pytest.mark.parametrize(
+    "client_type,pkce_enforced",
+    [
+        (Application.CLIENT_CONFIDENTIAL, False),  # secret protects it: PKCE optional
+        (Application.CLIENT_PUBLIC, True),  # no secret: PKCE still mandatory
+    ],
+)
+def test_pkce_required_only_for_public_clients(client, db, client_type, pkce_enforced):
+    team = Team.objects.create(name=f"PKCE {client_type}")
+    team.allowed_email_domains.create(domain="example.com")
+    app = Application.objects.create(
+        name=f"PKCE {client_type}",
+        client_type=client_type,
+        redirect_uris=REDIRECT_URI,
+        team=team,
+    )
+    user = User.objects.create_user(email=f"pkce-{client_type}@example.com")
+    client.force_login(user)
+
+    response = client.get("/o/authorize/", _authorize_without_pkce(app.client_id))
+
+    if pkce_enforced:
+        # Missing PKCE is rejected back to the client, not shown a consent screen.
+        assert response.status_code == 302
+        assert "error=invalid_request" in response["Location"]
+        assert "Code+challenge+required" in response["Location"]
+    else:
+        assert response.status_code == 200  # consent screen shown
 
 
 # ---------------------------------------------------------------------------
