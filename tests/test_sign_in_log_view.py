@@ -75,3 +75,78 @@ def test_logs_empty_state(client, owner):
     response = client.get(LOGS_URL)
     assert response.status_code == 200
     assert b"no sign-ins to show" in response.content
+
+
+@pytest.fixture
+def second_app(team):
+    return Application.objects.create(
+        name="Second App",
+        client_type=Application.CLIENT_CONFIDENTIAL,
+        redirect_uris="http://localhost/callback",
+        team=team,
+    )
+
+
+def test_filter_by_application(client, owner, app, second_app, stranger):
+    wanted = _event(stranger, app)
+    _event(stranger, second_app)
+    client.force_login(owner)
+
+    response = client.get(LOGS_URL, {"application": str(app.pk)})
+    assert [e.pk for e in response.context["events"]] == [wanted.pk]
+
+
+def test_filter_by_user_email(client, owner, app):
+    alice = User.objects.create_user(email="alice@example.com")
+    bob = User.objects.create_user(email="bob@example.com")
+    wanted = _event(alice, app)
+    _event(bob, app)
+    client.force_login(owner)
+
+    response = client.get(LOGS_URL, {"user": "alice"})
+    assert [e.pk for e in response.context["events"]] == [wanted.pk]
+
+
+def test_filter_by_date_range(client, owner, app, stranger):
+    _event(stranger, app, created=datetime(2026, 1, 10, tzinfo=timezone.utc))
+    inside = _event(stranger, app, created=datetime(2026, 2, 15, tzinfo=timezone.utc))
+    _event(stranger, app, created=datetime(2026, 3, 20, tzinfo=timezone.utc))
+    client.force_login(owner)
+
+    response = client.get(
+        LOGS_URL,
+        {
+            "from_day": "1", "from_month": "2", "from_year": "2026",
+            "to_day": "28", "to_month": "2", "to_year": "2026",
+        },
+    )
+    assert [e.pk for e in response.context["events"]] == [inside.pk]
+
+
+@pytest.mark.parametrize("bad_application", ["not-a-uuid", "12345"])
+def test_malformed_application_filter_is_ignored(client, owner, app, stranger, bad_application):
+    event = _event(stranger, app)
+    client.force_login(owner)
+
+    response = client.get(LOGS_URL, {"application": bad_application})
+    assert response.status_code == 200
+    assert [e.pk for e in response.context["events"]] == [event.pk]
+
+
+def test_pagination_preserves_filters(client, owner, app, stranger):
+    for _ in range(21):
+        _event(stranger, app)
+    client.force_login(owner)
+
+    response = client.get(LOGS_URL, {"application": str(app.pk)})
+    # The filter rides along in the pagination links, not just ?page=N.
+    assert f"application={app.pk}" in response.context["filter_query"]
+    assert f"page=2&amp;application={app.pk}" in response.content.decode()
+
+
+def test_filtered_empty_state(client, owner, app, stranger):
+    _event(stranger, app)
+    client.force_login(owner)
+
+    response = client.get(LOGS_URL, {"user": "nobody@example.com"})
+    assert b"No sign-ins match your filters" in response.content

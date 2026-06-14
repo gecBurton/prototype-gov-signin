@@ -1,4 +1,6 @@
 import json
+import uuid
+from datetime import date
 from functools import cached_property
 
 from django.contrib.auth import get_user_model
@@ -139,6 +141,12 @@ class PaginationMixin:
                 page_obj.number, on_each_side=1, on_ends=1
             )
             context["page_ellipsis"] = Paginator.ELLIPSIS
+        # Everything in the URL except the page number, so the pagination links
+        # carry the current filters forward instead of resetting to page 1's
+        # unfiltered view.
+        query = self.request.GET.copy()
+        query.pop("page", None)
+        context["filter_query"] = query.urlencode()
         return context
 
 
@@ -183,17 +191,61 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
     membership that gates the team admin pages), so this shows every SignInEvent
     for an application whose team the viewer belongs to — most recent first,
     paginated. Soft-deleted applications keep their history and still appear.
+
+    Filterable by application, user email and a created-date range; each filter
+    is an optional GET parameter so the filtered view is bookmarkable.
     """
 
     template_name = "oauth2_provider/sign_in_log.html"
     context_object_name = "events"
     paginate_by = 20
 
+    def _managed_applications(self):
+        return (
+            get_application_model()
+            .objects.filter(team__in=self.request.user.teams.all())
+            .order_by("name")
+        )
+
     def get_queryset(self):
         # SignInEvent.Meta already orders by -created (most recent first).
-        return SignInEvent.objects.filter(
+        events = SignInEvent.objects.filter(
             application__team__in=self.request.user.teams.all()
         ).select_related("user", "application", "application__team")
+        params = self.request.GET
+
+        application = params.get("application", "")
+        # An unknown/malformed id simply matches nothing (the team scope above
+        # already prevents seeing another team's events), so no leak is possible.
+        if application and _is_uuid(application):
+            events = events.filter(application_id=application)
+        if email := params.get("user", "").strip():
+            events = events.filter(user__email__icontains=email)
+        if date_from := _parse_date_parts(params, "from"):
+            events = events.filter(created__date__gte=date_from)
+        if date_to := _parse_date_parts(params, "to"):
+            events = events.filter(created__date__lte=date_to)
+        return events
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["applications"] = self._managed_applications()
+        # Echo the submitted values back so the form stays populated.
+        context["filters"] = self.request.GET
+        context["has_filters"] = any(
+            self.request.GET.get(key, "").strip()
+            for key in (
+                "application",
+                "user",
+                "from_day",
+                "from_month",
+                "from_year",
+                "to_day",
+                "to_month",
+                "to_year",
+            )
+        )
+        return context
 
 
 class TeamDetail(TeamMixin, View):
@@ -268,6 +320,30 @@ class TeamDomainRemove(TeamMixin, View):
             self.team.allowed_email_domains, pk=kwargs["domain_pk"]
         ).delete()
         return redirect("oauth2_provider:team", pk=self.team.pk)
+
+
+def _is_uuid(value):
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _parse_date_parts(params, prefix):
+    """Build a date from ``{prefix}_day/_month/_year`` GET params, or None.
+
+    A blank or unparseable date is treated as "no bound" rather than an error,
+    so a half-typed filter never 500s — it just doesn't constrain the results.
+    """
+    parts = [params.get(f"{prefix}_{unit}", "").strip() for unit in ("day", "month", "year")]
+    if not all(parts):
+        return None
+    try:
+        day, month, year = (int(part) for part in parts)
+        return date(year, month, day)
+    except ValueError:
+        return None
 
 
 def _is_domain_allowed(application, email):
