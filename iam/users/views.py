@@ -3,7 +3,7 @@ from functools import cached_property
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponseBadRequest
+from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
@@ -39,7 +39,9 @@ class TeamApplicationMixin(TeamMixin):
     team_url_kwarg = "team_pk"
 
     def get_queryset(self):
-        return get_application_model().objects.filter(team=self.team)
+        # Soft-deleted (hidden) applications are excluded everywhere this is
+        # used: detail, update, delete and secret regeneration.
+        return get_application_model().objects.filter(team=self.team, is_active=True)
 
     def get_context_data(self, **kwargs):
         return super().get_context_data(team=self.team, **kwargs)
@@ -101,6 +103,14 @@ class ApplicationUpdate(ApplicationFormMixin, base_views.ApplicationUpdate):
 class ApplicationDelete(TeamApplicationMixin, base_views.ApplicationDelete):
     def get_success_url(self):
         return reverse("oauth2_provider:team", kwargs={"pk": self.team.pk})
+
+    def form_valid(self, form):
+        # Soft delete: hide the application rather than removing the row, so its
+        # credentials and sign-in history are preserved and the action can be
+        # undone (by an admin). get_queryset already excludes hidden apps.
+        self.object.is_active = False
+        self.object.save(update_fields=["is_active"])
+        return redirect(self.get_success_url())
 
 
 class TeamList(LoginRequiredMixin, ListView):
@@ -217,11 +227,17 @@ def _reject_weak_pkce(params):
 
 class AuthorizationView(oidc_base_views.AuthorizationView):
     def _check_domain(self, request, client_id):
-        """Return a 403 response if the user's email domain is not whitelisted, else None."""
+        """Return a 403 response if the user's email domain is not whitelisted, else None.
+
+        Raises Http404 if the application has been soft-deleted (hidden), so a
+        removed client can never sign anyone in.
+        """
         try:
             application = get_application_model().objects.get(client_id=client_id)
         except get_application_model().DoesNotExist:
             return None  # let the parent handle the invalid client_id
+        if not application.is_active:
+            raise Http404("Unknown client")
         if not _is_domain_allowed(application, request.user.email):
             return render(
                 request,

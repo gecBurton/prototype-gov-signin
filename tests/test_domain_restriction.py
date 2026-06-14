@@ -131,6 +131,15 @@ def test_authorize_get_no_domain_app_denies_all(
         assert client.get("/o/authorize/", params).status_code == 403
 
 
+def test_authorize_hidden_application_is_404(client, allowed_user, app):
+    # A soft-deleted application can never sign anyone in, even an allowed user.
+    app.is_active = False
+    app.save(update_fields=["is_active"])
+    client.force_login(allowed_user)
+    response = client.get("/o/authorize/", _authorize_params(app))
+    assert response.status_code == 404
+
+
 def test_authorize_get_unauthenticated_redirects(client, app):
     response = client.get("/o/authorize/", _authorize_params(app))
     assert response.status_code == 302  # redirect to login, no 403

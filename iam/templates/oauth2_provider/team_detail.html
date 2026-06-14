@@ -26,9 +26,9 @@
 
 <p class="govuk-body">Applications are the services this team has registered to sign users in with Public Sector Sign-in. Each one gets its own client ID and secret.</p>
 
-{% if team.applications.all %}
+{% if team.active_applications %}
 <ul class="govuk-list">
-  {% for application in team.applications.all %}
+  {% for application in team.active_applications %}
   <li><a class="govuk-link" href="{% url 'oauth2_provider:detail' team_pk=team.pk pk=application.pk %}">{{ application.name }}</a></li>
   {% endfor %}
 </ul>

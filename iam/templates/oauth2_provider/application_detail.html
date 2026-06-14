@@ -62,6 +62,6 @@
   {% csrf_token %}
   <a href="{% url 'oauth2_provider:update' team_pk=team.pk pk=application.pk %}" class="govuk-button">Edit</a>
   <button type="submit" class="govuk-button govuk-button--secondary" data-module="govuk-button">Regenerate secret</button>
-  <a href="{% url 'oauth2_provider:delete' team_pk=team.pk pk=application.pk %}" class="govuk-link">Delete application</a>
+  <a href="{% url 'oauth2_provider:delete' team_pk=team.pk pk=application.pk %}" class="govuk-link">Remove application</a>
 </form>
 {% endblock %}

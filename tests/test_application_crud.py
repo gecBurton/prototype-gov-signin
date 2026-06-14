@@ -209,14 +209,19 @@ def test_update_rejects_invalid_additional_email(client, owner, team, app):
 # ---------------------------------------------------------------------------
 
 
-def test_delete_removes_application(client, owner, team, app):
+def test_delete_hides_application(client, owner, team, app):
+    # Soft delete: the row is kept but marked inactive and dropped from the
+    # team's active applications.
     client.force_login(owner)
     pk = app.pk
     assert (
         client.post(f"/o/teams/{team.pk}/applications/{app.pk}/delete/").status_code
         == 302
     )
-    assert not Application.objects.filter(pk=pk).exists()
+    app.refresh_from_db()
+    assert Application.objects.filter(pk=pk).exists()
+    assert app.is_active is False
+    assert app not in team.active_applications
 
 
 def test_delete_redirects_to_team(client, owner, team, app):
@@ -225,6 +230,24 @@ def test_delete_redirects_to_team(client, owner, team, app):
         client.post(f"/o/teams/{team.pk}/applications/{app.pk}/delete/")["Location"]
         == f"/o/teams/{team.pk}/"
     )
+
+
+@pytest.mark.parametrize("suffix", ["", "update/", "delete/"])
+def test_hidden_application_not_reachable(client, owner, team, app, suffix):
+    # A soft-deleted application is excluded from the management views (404).
+    app.is_active = False
+    app.save(update_fields=["is_active"])
+    client.force_login(owner)
+    url = f"/o/teams/{team.pk}/applications/{app.pk}/{suffix}"
+    assert client.get(url).status_code == 404
+
+
+def test_hidden_application_not_listed_on_team(client, owner, team, app):
+    app.is_active = False
+    app.save(update_fields=["is_active"])
+    client.force_login(owner)
+    html = client.get(f"/o/teams/{team.pk}/").content.decode()
+    assert app.name not in html
 
 
 # ---------------------------------------------------------------------------
