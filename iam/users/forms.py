@@ -24,6 +24,7 @@ class ApplicationForm(forms.ModelForm):
             "post_logout_redirect_uris",
             "allowed_origins",
             "skip_authorization",
+            "listed",
         )
         # Only override the labels Django would otherwise mis-case or where the
         # model name reads poorly; the rest fall back to the model fields'
@@ -33,6 +34,7 @@ class ApplicationForm(forms.ModelForm):
             "main_app_url": "Main app URL",
             "post_logout_redirect_uris": "Post-logout redirect URIs",
             "skip_authorization": "Skip the consent screen",
+            "listed": "Show in the applications directory",
         }
         help_texts = {
             "skip_authorization": (

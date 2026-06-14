@@ -1,0 +1,35 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Applications{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">Applications</h1>
+
+<p class="govuk-body">Services you can sign in to with your account. Not every service is listed, and being listed here does not guarantee you have access — that depends on each team's rules.</p>
+
+{% if applications %}
+
+  {% for application in applications %}
+  <div class="govuk-!-margin-bottom-6">
+    <h2 class="govuk-heading-m govuk-!-margin-bottom-1">
+      {% if application.main_app_url %}
+        <a class="govuk-link" href="{{ application.main_app_url }}" rel="noreferrer noopener">{{ application.name }}</a>
+      {% else %}
+        {{ application.name }}
+      {% endif %}
+    </h2>
+    <p class="govuk-caption-m govuk-!-margin-top-0 govuk-!-margin-bottom-1">{{ application.team.name }}</p>
+    {% if application.description %}
+      <p class="govuk-body">{{ application.description }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+{% else %}
+
+  <div class="govuk-inset-text">
+    <p class="govuk-body">There are no applications to show yet.</p>
+  </div>
+
+{% endif %}
+{% endblock %}

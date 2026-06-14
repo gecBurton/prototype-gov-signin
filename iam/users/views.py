@@ -122,6 +122,27 @@ class TeamList(LoginRequiredMixin, ListView):
         return self.request.user.teams.all()
 
 
+class ApplicationDirectory(LoginRequiredMixin, ListView):
+    """A directory of every listed application, for any signed-in user.
+
+    This is a catalogue of what exists, not of what the viewer can access:
+    domain restrictions are still enforced at the authorize endpoint, so an app
+    may appear here that a given user cannot actually sign in to. Soft-deleted
+    (is_active=False) and opted-out (listed=False) applications are excluded.
+    """
+
+    template_name = "oauth2_provider/application_directory.html"
+    context_object_name = "applications"
+
+    def get_queryset(self):
+        return (
+            get_application_model()
+            .objects.filter(is_active=True, listed=True)
+            .select_related("team")
+            .order_by("name")
+        )
+
+
 class TeamDetail(TeamMixin, View):
     template_name = "oauth2_provider/team_detail.html"
 
