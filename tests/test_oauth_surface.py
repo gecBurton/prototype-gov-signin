@@ -76,6 +76,26 @@ def test_authorize_requires_s256_pkce(client, db, oauth_app, method, expected_st
     assert response.status_code == expected_status
 
 
+@pytest.mark.parametrize(
+    "method,expected_status",
+    [
+        ("S256", 302),  # consent granted → redirect with an auth code
+        ("plain", 400),  # rejected before any code is issued
+    ],
+)
+def test_authorize_post_requires_s256_pkce(
+    client, db, oauth_app, method, expected_status
+):
+    # The GET test above guards the consent screen; form_valid has its own
+    # _reject_weak_pkce guard, so the approval POST must reject plain PKCE too.
+    user = User.objects.create_user(email="pkce-post@example.com")
+    client.force_login(user)
+    response = client.post(
+        "/o/authorize/", {**_authorize_params(method), "allow": "Authorize"}
+    )
+    assert response.status_code == expected_status
+
+
 # ---------------------------------------------------------------------------
 # #7 — surplus endpoints are gone
 # ---------------------------------------------------------------------------

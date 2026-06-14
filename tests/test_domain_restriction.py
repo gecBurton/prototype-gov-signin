@@ -1,60 +1,24 @@
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
-from users.models import Team
 from users.views import _is_domain_allowed
 
-from tests.conftest import REDIRECT_URI, authorize_params, pkce_pair
+from tests.conftest import authorize_params_for
 
 User = get_user_model()
 Application = get_application_model()
 
 
-def _make_team(name, domains):
-    team = Team.objects.create(name=name)
-    for domain in domains:
-        team.allowed_email_domains.create(domain=domain)
-    return team
-
-
-def _make_app(name, team):
-    return Application.objects.create(
-        name=name,
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        redirect_uris=REDIRECT_URI,
-        skip_authorization=False,
-        team=team,
+@pytest.fixture
+def app(make_team, make_application):
+    return make_application(
+        make_team("Restricted Team", domains=["allowed.com"]), name="Restricted App"
     )
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
-def allowed_user(db):
-    return User.objects.create_user(email="user@allowed.com")
-
-
-@pytest.fixture
-def blocked_user(db):
-    return User.objects.create_user(email="user@blocked.com")
-
-
-@pytest.fixture
-def app(db):
-    return _make_app("Restricted App", _make_team("Restricted Team", ["allowed.com"]))
-
-
-@pytest.fixture
-def no_domain_app(db):
-    return _make_app("No Domain App", _make_team("No Domain Team", []))
-
-
-def _authorize_params(app):
-    _, code_challenge = pkce_pair()
-    return authorize_params(client_id=app.client_id, code_challenge=code_challenge)
+def no_domain_app(make_team, make_application):
+    return make_application(make_team("No Domain Team"), name="No Domain App")
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +43,8 @@ def _authorize_params(app):
         (["department.gov.uk"], "some.one@gov.uk", False),  # parent domain no match
     ],
 )
-def test_is_domain_allowed(db, domains, email, expected):
-    team = _make_team("Test Team", domains)
+def test_is_domain_allowed(make_team, domains, email, expected):
+    team = make_team("Test Team", domains=domains)
     assert _is_domain_allowed(Application(team=team), email) is expected
 
 
@@ -95,8 +59,8 @@ def test_is_domain_allowed(db, domains, email, expected):
         ("", "user@blocked.com", False),  # no additional emails
     ],
 )
-def test_additional_emails_bypass_domain(db, additional_emails, email, expected):
-    team = _make_team("VIP Team", ["allowed.com"])
+def test_additional_emails_bypass_domain(make_team, additional_emails, email, expected):
+    team = make_team("VIP Team", domains=["allowed.com"])
     application = Application(team=team, additional_emails=additional_emails)
     assert _is_domain_allowed(application, email) is expected
 
@@ -117,7 +81,7 @@ def test_authorize_get_domain_check(
     request, client, user_fixture, expected_status, app
 ):
     client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get("/o/authorize/", _authorize_params(app))
+    response = client.get("/o/authorize/", authorize_params_for(app))
     assert response.status_code == expected_status
 
 
@@ -125,7 +89,7 @@ def test_authorize_get_no_domain_app_denies_all(
     client, allowed_user, blocked_user, no_domain_app
 ):
     # A team that lists no domains admits no one (fail closed).
-    params = _authorize_params(no_domain_app)
+    params = authorize_params_for(no_domain_app)
     for user in (allowed_user, blocked_user):
         client.force_login(user)
         assert client.get("/o/authorize/", params).status_code == 403
@@ -136,12 +100,12 @@ def test_authorize_hidden_application_is_404(client, allowed_user, app):
     app.is_active = False
     app.save(update_fields=["is_active"])
     client.force_login(allowed_user)
-    response = client.get("/o/authorize/", _authorize_params(app))
+    response = client.get("/o/authorize/", authorize_params_for(app))
     assert response.status_code == 404
 
 
 def test_authorize_get_unauthenticated_redirects(client, app):
-    response = client.get("/o/authorize/", _authorize_params(app))
+    response = client.get("/o/authorize/", authorize_params_for(app))
     assert response.status_code == 302  # redirect to login, no 403
 
 
@@ -162,7 +126,7 @@ def test_authorize_post_domain_check(
 ):
     user = request.getfixturevalue(user_fixture)
     client.force_login(user)
-    params = _authorize_params(app)
+    params = authorize_params_for(app)
     response = client.post("/o/authorize/", {**params, "allow": "Authorize"})
     assert response.status_code == expected_status
 
@@ -182,17 +146,19 @@ def test_authorize_post_domain_check(
         ("user@alpha.com", ["ALPHA.COM"], 200),  # whitelist uppercase
     ],
 )
-def test_authorize_domain_cases(client, db, email, allowed_domains, expected_status):
+def test_authorize_domain_cases(
+    client, make_team, make_application, email, allowed_domains, expected_status
+):
     user = User.objects.create_user(email=email)
-    application = _make_app("Test", _make_team("Case Team", allowed_domains))
+    application = make_application(make_team("Case Team", domains=allowed_domains))
     client.force_login(user)
-    response = client.get("/o/authorize/", _authorize_params(application))
+    response = client.get("/o/authorize/", authorize_params_for(application))
     assert response.status_code == expected_status
 
 
 def test_authorize_403_shows_app_name(client, blocked_user, app):
     client.force_login(blocked_user)
-    response = client.get("/o/authorize/", _authorize_params(app))
+    response = client.get("/o/authorize/", authorize_params_for(app))
     assert response.status_code == 403
     assert app.name in response.content.decode()
 

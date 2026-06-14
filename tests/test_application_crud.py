@@ -3,7 +3,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from django.db import IntegrityError
 from oauth2_provider.models import AbstractApplication, get_application_model
-from users.models import Team
 
 User = get_user_model()
 Application = get_application_model()
@@ -12,17 +11,6 @@ _FORM_BASE = {
     "client_type": Application.CLIENT_CONFIDENTIAL,
     "redirect_uris": "http://localhost/callback",
 }
-
-
-@pytest.fixture
-def other_team_app(db):
-    other_team = Team.objects.create(name="Other Team")
-    return Application.objects.create(
-        name="Other App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        redirect_uris="http://localhost/callback",
-        team=other_team,
-    )
 
 
 def test_start_page(client):
@@ -202,6 +190,23 @@ def test_update_rejects_invalid_additional_email(client, owner, team, app):
     assert response.status_code == 200  # redisplayed with error
     app.refresh_from_db()
     assert app.additional_emails == ""
+
+
+def test_update_enforces_https_post_logout_redirect(client, owner, team, app):
+    # The same https rule the registration form enforces applies on update too
+    # (shared Application.clean): a cleartext post-logout redirect is rejected.
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {
+            **_FORM_BASE,
+            "name": app.name,
+            "post_logout_redirect_uris": "http://app.gov.uk/signed-out",
+        },
+    )
+    assert response.status_code == 200  # redisplayed with a validation error
+    app.refresh_from_db()
+    assert app.post_logout_redirect_uris == ""
 
 
 # ---------------------------------------------------------------------------

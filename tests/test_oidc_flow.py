@@ -1,4 +1,3 @@
-import base64
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -6,9 +5,9 @@ import pytest
 
 from tests.conftest import (
     CLIENT_ID,
-    CLIENT_SECRET,
-    REDIRECT_URI,
     authorize_params,
+    decode_id_token,
+    exchange_code_for_tokens,
     login_code,
     pkce_pair,
 )
@@ -48,17 +47,7 @@ def test_full_oidc_authorization_code_flow(client, demo_user, oauth_app, mailout
     assert auth_code, "No auth code in redirect"
 
     # 6. Client exchanges auth code for tokens
-    response = client.post(
-        "/o/token/",
-        {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": REDIRECT_URI,
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "code_verifier": code_verifier,
-        },
-    )
+    response = exchange_code_for_tokens(client, auth_code, code_verifier)
     assert response.status_code == 200
     tokens = json.loads(response.content)
     assert "access_token" in tokens
@@ -77,9 +66,7 @@ def test_full_oidc_authorization_code_flow(client, demo_user, oauth_app, mailout
     assert "sub" in userinfo
 
     # 8. ID token contains expected claims
-    payload = tokens["id_token"].split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    claims = json.loads(base64.urlsafe_b64decode(payload))
+    claims = decode_id_token(tokens["id_token"])
     assert claims["aud"] == CLIENT_ID
     assert claims["sub"] == str(demo_user.pk)
     assert "iss" in claims
