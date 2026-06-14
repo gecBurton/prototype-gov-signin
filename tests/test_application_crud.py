@@ -192,6 +192,23 @@ def test_update_rejects_invalid_additional_email(client, owner, team, app):
     assert app.additional_emails == ""
 
 
+def test_update_enforces_https_post_logout_redirect(client, owner, team, app):
+    # The same https rule the registration form enforces applies on update too
+    # (shared Application.clean): a cleartext post-logout redirect is rejected.
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {
+            **_FORM_BASE,
+            "name": app.name,
+            "post_logout_redirect_uris": "http://app.gov.uk/signed-out",
+        },
+    )
+    assert response.status_code == 200  # redisplayed with a validation error
+    app.refresh_from_db()
+    assert app.post_logout_redirect_uris == ""
+
+
 # ---------------------------------------------------------------------------
 # ApplicationDelete
 # ---------------------------------------------------------------------------

@@ -155,6 +155,61 @@ def test_malformed_application_filter_is_ignored(
     assert [e.pk for e in response.context["events"]] == [event.pk]
 
 
+@pytest.mark.parametrize(
+    "date_params",
+    [
+        pytest.param(
+            {"date_day": "32", "date_month": "2", "date_year": "2026"},
+            id="impossible-day",
+        ),
+        pytest.param(
+            {"date_day": "15", "date_month": "13", "date_year": "2026"},
+            id="impossible-month",
+        ),
+        pytest.param(
+            {"date_day": "x", "date_month": "2", "date_year": "2026"},
+            id="non-numeric",
+        ),
+        pytest.param({"date_day": "15"}, id="partial-day-only"),
+    ],
+)
+def test_malformed_or_partial_date_filter_is_ignored(
+    client, owner, app, stranger, date_params
+):
+    # A half-typed or impossible date must not 500; it just doesn't constrain
+    # the results (see _parse_date_parts).
+    event = _event(stranger, app)
+    client.force_login(owner)
+
+    response = client.get(LOGS_URL, date_params)
+    assert response.status_code == 200
+    assert [e.pk for e in response.context["events"]] == [event.pk]
+
+
+def test_filters_combine(client, owner, app, second_app, stranger):
+    # Each filter is tested in isolation elsewhere; this locks in that they AND
+    # together — only the event matching application AND user AND date survives.
+    on_date = datetime(2026, 2, 15, 9, 0, tzinfo=timezone.utc)
+    alice = User.objects.create_user(email="alice@example.com")
+    wanted = _event(alice, app, created=on_date)
+    _event(alice, app, created=datetime(2026, 2, 16, tzinfo=timezone.utc))  # wrong date
+    _event(alice, second_app, created=on_date)  # wrong application
+    _event(stranger, app, created=on_date)  # wrong user
+    client.force_login(owner)
+
+    response = client.get(
+        LOGS_URL,
+        {
+            "application": str(app.pk),
+            "user": "alice",
+            "date_day": "15",
+            "date_month": "2",
+            "date_year": "2026",
+        },
+    )
+    assert [e.pk for e in response.context["events"]] == [wanted.pk]
+
+
 def test_pagination_preserves_filters(client, owner, app, stranger):
     for _ in range(21):
         _event(stranger, app)
