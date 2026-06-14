@@ -13,7 +13,6 @@ The fix has three parts, covered here:
      (validators.py).
 """
 
-import base64
 import json
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -24,10 +23,9 @@ from django.contrib.auth import get_user_model
 from validators import OIDCValidator
 
 from tests.conftest import (
-    CLIENT_ID,
-    CLIENT_SECRET,
-    REDIRECT_URI,
     authorize_params,
+    decode_id_token,
+    exchange_code_for_tokens,
     pkce_pair,
 )
 
@@ -109,23 +107,10 @@ def test_unverified_session_cannot_mint_a_verified_id_token(client, oauth_app):
     assert response.status_code == 302
     code = parse_qs(urlparse(response["Location"]).query)["code"][0]
 
-    response = client.post(
-        "/o/token/",
-        {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": REDIRECT_URI,
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "code_verifier": verifier,
-        },
-    )
+    response = exchange_code_for_tokens(client, code, verifier)
     assert response.status_code == 200
 
-    id_token = json.loads(response.content)["id_token"]
-    payload = id_token.split(".")[1]
-    payload += "=" * (-len(payload) % 4)
-    claims = json.loads(base64.urlsafe_b64decode(payload))
+    claims = decode_id_token(json.loads(response.content)["id_token"])
 
     assert claims["email"] == user.email
     assert claims["email_verified"] is False

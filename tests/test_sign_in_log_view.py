@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
-from users.models import SignInEvent, Team
+from users.models import SignInEvent
 
 User = get_user_model()
 Application = get_application_model()
@@ -18,17 +18,6 @@ def _event(user, application, created=None):
         SignInEvent.objects.filter(pk=event.pk).update(created=created)
         event.refresh_from_db()
     return event
-
-
-@pytest.fixture
-def other_team_app(db):
-    other = Team.objects.create(name="Other Team")
-    return Application.objects.create(
-        name="Other App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        redirect_uris="http://localhost/callback",
-        team=other,
-    )
 
 
 def test_logs_requires_login(client, db):

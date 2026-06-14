@@ -3,7 +3,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from django.db import IntegrityError
 from oauth2_provider.models import AbstractApplication, get_application_model
-from users.models import Team
 
 User = get_user_model()
 Application = get_application_model()
@@ -12,17 +11,6 @@ _FORM_BASE = {
     "client_type": Application.CLIENT_CONFIDENTIAL,
     "redirect_uris": "http://localhost/callback",
 }
-
-
-@pytest.fixture
-def other_team_app(db):
-    other_team = Team.objects.create(name="Other Team")
-    return Application.objects.create(
-        name="Other App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        redirect_uris="http://localhost/callback",
-        team=other_team,
-    )
 
 
 def test_start_page(client):
