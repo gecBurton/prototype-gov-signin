@@ -74,7 +74,7 @@
               {% if request.user.is_authenticated %}
               <li class="govuk-service-navigation__item {% if '/o/teams/' in request.path %}govuk-service-navigation__item--active{% endif %}">
                 <a class="govuk-service-navigation__link" href="/o/teams/" {% if '/o/teams/' in request.path %}aria-current="page"{% endif %}>
-                  {% if '/o/teams/' in request.path %}<strong class="govuk-service-navigation__active-fallback">Applications</strong>{% else %}Applications{% endif %}
+                  {% if '/o/teams/' in request.path %}<strong class="govuk-service-navigation__active-fallback">Admin</strong>{% else %}Admin{% endif %}
                 </a>
               </li>
               <li class="govuk-service-navigation__item">
