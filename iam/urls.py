@@ -11,6 +11,7 @@ from users.views import (
     ApplicationUpdate,
     AuthorizationView,
     DiscoveryInfoView,
+    SignInLog,
     TeamDetail,
     TeamDomainAdd,
     TeamDomainRemove,
@@ -20,6 +21,7 @@ from users.views import (
 
 management_urlpatterns = [
     path("applications/", ApplicationDirectory.as_view(), name="applications"),
+    path("logs/", SignInLog.as_view(), name="logs"),
     path("teams/", TeamList.as_view(), name="teams"),
     path("teams/<uuid:pk>/", TeamDetail.as_view(), name="team"),
     path(

@@ -123,7 +123,26 @@ class TeamList(LoginRequiredMixin, ListView):
         return self.request.user.teams.all()
 
 
-class ApplicationDirectory(LoginRequiredMixin, ListView):
+class ElidedPaginationMixin:
+    """Add GOV.UK-style elided page numbers to a paginated ListView.
+
+    Exposes ``page_range`` (page numbers with Paginator.ELLIPSIS standing in for
+    gaps — the GOV.UK pattern: first, …, neighbours, …, last) and
+    ``page_ellipsis`` so the shared pagination partial can render the gaps.
+    """
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if context.get("is_paginated"):
+            page_obj = context["page_obj"]
+            context["page_range"] = page_obj.paginator.get_elided_page_range(
+                page_obj.number, on_each_side=1, on_ends=1
+            )
+            context["page_ellipsis"] = Paginator.ELLIPSIS
+        return context
+
+
+class ApplicationDirectory(ElidedPaginationMixin, LoginRequiredMixin, ListView):
     """A directory of every listed application, for any signed-in user.
 
     Every listed application is shown (a catalogue of what exists), each tagged
@@ -154,15 +173,27 @@ class ApplicationDirectory(LoginRequiredMixin, ListView):
         # prefetch loads) only the apps actually shown — no per-app queries.
         for application in context["applications"]:
             application.user_has_access = _is_domain_allowed(application, email)
-        if context.get("is_paginated"):
-            page_obj = context["page_obj"]
-            # Page numbers with Paginator.ELLIPSIS standing in for gaps, which is
-            # exactly the GOV.UK pattern: first, …, neighbours, …, last.
-            context["page_range"] = page_obj.paginator.get_elided_page_range(
-                page_obj.number, on_each_side=1, on_ends=1
-            )
-            context["page_ellipsis"] = Paginator.ELLIPSIS
         return context
+
+
+class SignInLog(ElidedPaginationMixin, LoginRequiredMixin, ListView):
+    """Sign-in history for the applications the viewer manages.
+
+    A user manages an application by being a member of its owning team (the same
+    membership that gates the team admin pages), so this shows every SignInEvent
+    for an application whose team the viewer belongs to — most recent first,
+    paginated. Soft-deleted applications keep their history and still appear.
+    """
+
+    template_name = "oauth2_provider/sign_in_log.html"
+    context_object_name = "events"
+    paginate_by = 20
+
+    def get_queryset(self):
+        # SignInEvent.Meta already orders by -created (most recent first).
+        return SignInEvent.objects.filter(
+            application__team__in=self.request.user.teams.all()
+        ).select_related("user", "application", "application__team")
 
 
 class TeamDetail(TeamMixin, View):

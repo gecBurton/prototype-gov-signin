@@ -1,0 +1,43 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Sign-in logs{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">Sign-in logs</h1>
+
+<p class="govuk-body">Every sign-in to the applications your teams manage, most recent first.</p>
+
+{% if events %}
+
+  <table class="govuk-table">
+    <caption class="govuk-visually-hidden">Sign-in events</caption>
+    <thead class="govuk-table__head">
+      <tr class="govuk-table__row">
+        <th scope="col" class="govuk-table__header">When</th>
+        <th scope="col" class="govuk-table__header">User</th>
+        <th scope="col" class="govuk-table__header">Application</th>
+        <th scope="col" class="govuk-table__header">Team</th>
+      </tr>
+    </thead>
+    <tbody class="govuk-table__body">
+      {% for event in events %}
+      <tr class="govuk-table__row">
+        <td class="govuk-table__cell">{{ event.created|date:"j M Y, H:i" }}</td>
+        <td class="govuk-table__cell">{{ event.user.email }}</td>
+        <td class="govuk-table__cell">{{ event.application.name }}</td>
+        <td class="govuk-table__cell">{{ event.application.team.name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% include "oauth2_provider/_pagination.html" %}
+
+{% else %}
+
+  <div class="govuk-inset-text">
+    <p class="govuk-body">There are no sign-ins to show yet.</p>
+  </div>
+
+{% endif %}
+{% endblock %}
