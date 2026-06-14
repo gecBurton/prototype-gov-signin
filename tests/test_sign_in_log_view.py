@@ -141,7 +141,9 @@ def test_filter_by_user_email_is_a_partial_match(client, owner, app, query):
 
 def test_filter_by_date(client, owner, app, stranger):
     _event(stranger, app, created=datetime(2026, 2, 14, 23, 0, tzinfo=timezone.utc))
-    wanted = _event(stranger, app, created=datetime(2026, 2, 15, 9, 0, tzinfo=timezone.utc))
+    wanted = _event(
+        stranger, app, created=datetime(2026, 2, 15, 9, 0, tzinfo=timezone.utc)
+    )
     _event(stranger, app, created=datetime(2026, 2, 16, 1, 0, tzinfo=timezone.utc))
     client.force_login(owner)
 
@@ -153,7 +155,9 @@ def test_filter_by_date(client, owner, app, stranger):
 
 
 @pytest.mark.parametrize("bad_application", ["not-a-uuid", "12345"])
-def test_malformed_application_filter_is_ignored(client, owner, app, stranger, bad_application):
+def test_malformed_application_filter_is_ignored(
+    client, owner, app, stranger, bad_application
+):
     event = _event(stranger, app)
     client.force_login(owner)
 

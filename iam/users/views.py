@@ -344,7 +344,9 @@ def _parse_date_parts(params, prefix):
     A blank or unparseable date is treated as "no bound" rather than an error,
     so a half-typed filter never 500s — it just doesn't constrain the results.
     """
-    parts = [params.get(f"{prefix}_{unit}", "").strip() for unit in ("day", "month", "year")]
+    parts = [
+        params.get(f"{prefix}_{unit}", "").strip() for unit in ("day", "month", "year")
+    ]
     if not all(parts):
         return None
     try:
