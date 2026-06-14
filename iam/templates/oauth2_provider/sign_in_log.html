@@ -2,10 +2,6 @@
 
 {% block title %}Sign-in logs{% endblock %}
 
-{# A wide table plus its filters needs more room than the default
-   two-thirds layout. #}
-{% block grid_column_class %}govuk-grid-column-full{% endblock %}
-
 {% block inner_content %}
 <h1 class="govuk-heading-l">Sign-in logs</h1>
 
@@ -26,52 +22,26 @@
     <input class="govuk-input govuk-input--width-20" id="user" name="user" type="text" value="{{ filters.user }}">
   </div>
   <div class="govuk-form-group">
-    <fieldset class="govuk-fieldset" role="group" aria-describedby="from-hint">
-      <legend class="govuk-fieldset__legend">From date</legend>
-      <div id="from-hint" class="govuk-hint">For example, 27 3 2026</div>
-      <div class="govuk-date-input" id="from">
+    <fieldset class="govuk-fieldset" role="group" aria-describedby="date-hint">
+      <legend class="govuk-fieldset__legend">Date</legend>
+      <div id="date-hint" class="govuk-hint">For example, 27 3 2026</div>
+      <div class="govuk-date-input" id="date">
         <div class="govuk-date-input__item">
           <div class="govuk-form-group">
-            <label class="govuk-label govuk-date-input__label" for="from_day">Day</label>
-            <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="from_day" name="from_day" type="text" inputmode="numeric" value="{{ filters.from_day }}">
+            <label class="govuk-label govuk-date-input__label" for="date_day">Day</label>
+            <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="date_day" name="date_day" type="text" inputmode="numeric" value="{{ filters.date_day }}">
           </div>
         </div>
         <div class="govuk-date-input__item">
           <div class="govuk-form-group">
-            <label class="govuk-label govuk-date-input__label" for="from_month">Month</label>
-            <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="from_month" name="from_month" type="text" inputmode="numeric" value="{{ filters.from_month }}">
+            <label class="govuk-label govuk-date-input__label" for="date_month">Month</label>
+            <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="date_month" name="date_month" type="text" inputmode="numeric" value="{{ filters.date_month }}">
           </div>
         </div>
         <div class="govuk-date-input__item">
           <div class="govuk-form-group">
-            <label class="govuk-label govuk-date-input__label" for="from_year">Year</label>
-            <input class="govuk-input govuk-date-input__input govuk-input--width-4" id="from_year" name="from_year" type="text" inputmode="numeric" value="{{ filters.from_year }}">
-          </div>
-        </div>
-      </div>
-    </fieldset>
-  </div>
-  <div class="govuk-form-group">
-    <fieldset class="govuk-fieldset" role="group" aria-describedby="to-hint">
-      <legend class="govuk-fieldset__legend">To date</legend>
-      <div id="to-hint" class="govuk-hint">For example, 27 3 2026</div>
-      <div class="govuk-date-input" id="to">
-        <div class="govuk-date-input__item">
-          <div class="govuk-form-group">
-            <label class="govuk-label govuk-date-input__label" for="to_day">Day</label>
-            <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="to_day" name="to_day" type="text" inputmode="numeric" value="{{ filters.to_day }}">
-          </div>
-        </div>
-        <div class="govuk-date-input__item">
-          <div class="govuk-form-group">
-            <label class="govuk-label govuk-date-input__label" for="to_month">Month</label>
-            <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="to_month" name="to_month" type="text" inputmode="numeric" value="{{ filters.to_month }}">
-          </div>
-        </div>
-        <div class="govuk-date-input__item">
-          <div class="govuk-form-group">
-            <label class="govuk-label govuk-date-input__label" for="to_year">Year</label>
-            <input class="govuk-input govuk-date-input__input govuk-input--width-4" id="to_year" name="to_year" type="text" inputmode="numeric" value="{{ filters.to_year }}">
+            <label class="govuk-label govuk-date-input__label" for="date_year">Year</label>
+            <input class="govuk-input govuk-date-input__input govuk-input--width-4" id="date_year" name="date_year" type="text" inputmode="numeric" value="{{ filters.date_year }}">
           </div>
         </div>
       </div>

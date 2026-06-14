@@ -107,20 +107,17 @@ def test_filter_by_user_email(client, owner, app):
     assert [e.pk for e in response.context["events"]] == [wanted.pk]
 
 
-def test_filter_by_date_range(client, owner, app, stranger):
-    _event(stranger, app, created=datetime(2026, 1, 10, tzinfo=timezone.utc))
-    inside = _event(stranger, app, created=datetime(2026, 2, 15, tzinfo=timezone.utc))
-    _event(stranger, app, created=datetime(2026, 3, 20, tzinfo=timezone.utc))
+def test_filter_by_date(client, owner, app, stranger):
+    _event(stranger, app, created=datetime(2026, 2, 14, 23, 0, tzinfo=timezone.utc))
+    wanted = _event(stranger, app, created=datetime(2026, 2, 15, 9, 0, tzinfo=timezone.utc))
+    _event(stranger, app, created=datetime(2026, 2, 16, 1, 0, tzinfo=timezone.utc))
     client.force_login(owner)
 
     response = client.get(
         LOGS_URL,
-        {
-            "from_day": "1", "from_month": "2", "from_year": "2026",
-            "to_day": "28", "to_month": "2", "to_year": "2026",
-        },
+        {"date_day": "15", "date_month": "2", "date_year": "2026"},
     )
-    assert [e.pk for e in response.context["events"]] == [inside.pk]
+    assert [e.pk for e in response.context["events"]] == [wanted.pk]
 
 
 @pytest.mark.parametrize("bad_application", ["not-a-uuid", "12345"])

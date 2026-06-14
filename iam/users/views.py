@@ -221,10 +221,8 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
             events = events.filter(application_id=application)
         if email := params.get("user", "").strip():
             events = events.filter(user__email__icontains=email)
-        if date_from := _parse_date_parts(params, "from"):
-            events = events.filter(created__date__gte=date_from)
-        if date_to := _parse_date_parts(params, "to"):
-            events = events.filter(created__date__lte=date_to)
+        if day := _parse_date_parts(params, "date"):
+            events = events.filter(created__date=day)
         return events
 
     def get_context_data(self, **kwargs):
@@ -237,12 +235,9 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
             for key in (
                 "application",
                 "user",
-                "from_day",
-                "from_month",
-                "from_year",
-                "to_day",
-                "to_month",
-                "to_year",
+                "date_day",
+                "date_month",
+                "date_year",
             )
         )
         return context
