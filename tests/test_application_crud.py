@@ -59,6 +59,16 @@ def test_disallowed_application_settings_rejected(db, team, field, value):
         )
 
 
+def test_team_is_required(db):
+    # Team-less applications are banned: every app must belong to a team.
+    with pytest.raises(IntegrityError):
+        Application.objects.create(
+            name="Orphan App",
+            client_type=Application.CLIENT_CONFIDENTIAL,
+            redirect_uris="http://localhost/callback",
+        )
+
+
 # ---------------------------------------------------------------------------
 # App views — GET access (detail, update, delete share the same matrix)
 # ---------------------------------------------------------------------------
