@@ -10,21 +10,7 @@ User = get_user_model()
 
 
 class ApplicationForm(forms.ModelForm):
-    """Create/update form for an OAuth application.
-
-    Surfaces the model's own fields plus ``prompt_for_consent``, a friendlier
-    inverse of the toolkit's ``skip_authorization`` flag: ticking it shows the
-    consent screen, leaving it unticked skips straight through.
-    """
-
-    prompt_for_consent = forms.BooleanField(
-        required=False,
-        label="Prompt for consent",
-        help_text=(
-            "Show users a consent screen the first time they sign in to this "
-            "application. Leave unticked to skip it."
-        ),
-    )
+    """Create/update form for an OAuth application."""
 
     class Meta:
         model = get_application_model()
@@ -37,18 +23,26 @@ class ApplicationForm(forms.ModelForm):
             "additional_emails",
             "post_logout_redirect_uris",
             "allowed_origins",
+            "skip_authorization",
         )
-        # Only override the labels Django would otherwise mis-case; the rest fall
-        # back to the model fields' verbose names.
+        # Only override the labels Django would otherwise mis-case or where the
+        # model name reads poorly; the rest fall back to the model fields'
+        # verbose names.
         labels = {
             "redirect_uris": "Redirect URIs",
             "main_app_url": "Main app URL",
             "post_logout_redirect_uris": "Post-logout redirect URIs",
+            "skip_authorization": "Skip the consent screen",
+        }
+        help_texts = {
+            "skip_authorization": (
+                "Tick to send users straight through without showing a consent "
+                "screen the first time they sign in to this application."
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["prompt_for_consent"].initial = not self.instance.skip_authorization
         # name and redirect_uris are blank=True on the model (the toolkit allows
         # admin-seeded clients without them) but a team filling in this form must
         # provide them, so they are required here.
@@ -65,10 +59,6 @@ class ApplicationForm(forms.ModelForm):
                 raise ValidationError(f"{token} is not a valid email address.")
             emails.append(email)
         return " ".join(emails)
-
-    def save(self, commit=True):
-        self.instance.skip_authorization = not self.cleaned_data["prompt_for_consent"]
-        return super().save(commit=commit)
 
 
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):

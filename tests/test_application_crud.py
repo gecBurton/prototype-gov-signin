@@ -170,16 +170,14 @@ def test_update_saves_new_fields(client, owner, team, app):
 
 
 @pytest.mark.parametrize(
-    "prompt_posted,expected_skip",
-    [({"prompt_for_consent": "on"}, False), ({}, True)],
+    "posted,expected_skip",
+    [({"skip_authorization": "on"}, True), ({}, False)],
 )
-def test_prompt_for_consent_inverts_skip_authorization(
-    client, owner, team, app, prompt_posted, expected_skip
-):
+def test_skip_authorization_checkbox(client, owner, team, app, posted, expected_skip):
     client.force_login(owner)
     client.post(
         f"/o/teams/{team.pk}/applications/{app.pk}/update/",
-        {**_FORM_BASE, "name": app.name, **prompt_posted},
+        {**_FORM_BASE, "name": app.name, **posted},
     )
     app.refresh_from_db()
     assert app.skip_authorization is expected_skip

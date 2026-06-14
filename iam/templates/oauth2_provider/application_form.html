@@ -43,7 +43,7 @@
   <h2 class="govuk-heading-m">Advanced OAuth settings</h2>
   {% include "oauth2_provider/_form_field.html" with field=form.post_logout_redirect_uris %}
   {% include "oauth2_provider/_form_field.html" with field=form.allowed_origins %}
-  {% include "oauth2_provider/_form_field.html" with field=form.prompt_for_consent %}
+  {% include "oauth2_provider/_form_field.html" with field=form.skip_authorization %}
 
   {% for field in form.hidden_fields %}{{ field }}{% endfor %}
 

@@ -47,8 +47,8 @@
   </div>
   {% endif %}
   <div class="govuk-summary-list__row">
-    <dt class="govuk-summary-list__key">Prompt for consent</dt>
-    <dd class="govuk-summary-list__value">{% if application.skip_authorization %}No{% else %}Yes{% endif %}</dd>
+    <dt class="govuk-summary-list__key">Skip the consent screen</dt>
+    <dd class="govuk-summary-list__value">{% if application.skip_authorization %}Yes{% else %}No{% endif %}</dd>
   </div>
   {% if application.additional_emails %}
   <div class="govuk-summary-list__row">
