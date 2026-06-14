@@ -64,36 +64,37 @@ class ApplicationForm(forms.ModelForm):
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
     """Login-by-code that enrols unknown email addresses instead of bouncing them.
 
-    The parent's clean_email owns validation, rate limiting and the user
-    lookup, leaving ``self._user`` as None for unknown emails (allauth would
-    then send an enumeration-safe "no account" mail). This override adds the
-    missing case: create the account so a login code is sent instead, and
-    ensure an EmailAddress row exists for the account (backfilling any
-    pre-existing user that lacks one).
+    By default allauth's clean_email finds no account for an unknown address,
+    leaving it to send an enumeration-safe "no account" mail. We make the
+    account exist *before* delegating to allauth: its own lookup then finds the
+    user and sends a login code, with no need to touch allauth's private
+    ``self._user``. The only coupling left is the supported one — subclassing
+    the configured RequestLoginCodeForm and calling super().
 
     The address is created unverified; allauth marks it verified once the
     emailed code is confirmed, which is what satisfies
-    ACCOUNT_EMAIL_VERIFICATION="mandatory".
+    ACCOUNT_EMAIL_VERIFICATION="mandatory". An EmailAddress row is also ensured
+    for any pre-existing user that lacks one (e.g. seed- or admin-created
+    accounts), so confirming the code can verify it.
+
+    Field validation has already run by the time clean_email is called, so
+    self.cleaned_data["email"] is a valid, normalised address. Creating the
+    account here (before super()'s rate-limit check) means an address rejected
+    by the per-IP limit can still leave an unverified, unusable-password row;
+    that is an accepted trade-off (see ACCOUNT_RATE_LIMITS in settings.py).
     """
 
     def clean_email(self) -> str:
-        email = super().clean_email()
-        if not email:
-            return email
-        if self._user is None:
-            user = User(email=email)
-            user.set_unusable_password()
-            user.save()
-            self._user = user
-        # Ensure an EmailAddress row exists so confirming the code can mark it
-        # verified. Without one, login-by-code cannot verify the address and
-        # ACCOUNT_EMAIL_VERIFICATION="mandatory" would refuse the login — this
-        # backfills users who never went through enrolment (e.g. seed- or
-        # admin-created accounts). The address is created unverified; the
-        # confirmed code is what verifies it.
-        EmailAddress.objects.get_or_create(
-            user=self._user,
-            email=email,
-            defaults={"primary": True, "verified": False},
-        )
-        return email
+        email = self.cleaned_data.get("email")
+        if email:
+            user, created = User.objects.get_or_create(email=email)
+            if created:
+                user.set_unusable_password()
+                user.save(update_fields=["password"])
+            EmailAddress.objects.get_or_create(
+                user=user,
+                email=email,
+                defaults={"primary": True, "verified": False},
+            )
+        # The account now exists, so allauth's lookup sets self._user itself.
+        return super().clean_email()
