@@ -263,6 +263,14 @@ OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "OIDC_RSA_PRIVATE_KEY": _oidc_key,
     "OAUTH2_VALIDATOR_CLASS": "validators.OIDCValidator",
+    # PKCE is mandatory for every client, public and confidential alike. This
+    # matches the toolkit's current default, but pin it explicitly so an upstream
+    # change to that default can never silently weaken us: PKCE defends against
+    # authorization-code injection, which a confidential client's secret does not
+    # (the secret stops code *theft*, not a code the legit client is tricked into
+    # exchanging). Clients that send a challenge are further held to S256 (see
+    # users.views._reject_weak_pkce).
+    "PKCE_REQUIRED": True,
     # Short-lived access tokens (default is 10 hours). This service exists to
     # gate access, so a token should not outlive a change in authorization by
     # long. Relying parties refresh as needed. NB: refresh tokens are not
