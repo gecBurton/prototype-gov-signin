@@ -211,7 +211,7 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
         # SignInEvent.Meta already orders by -created (most recent first).
         events = SignInEvent.objects.filter(
             application__team__in=self.request.user.teams.all()
-        ).select_related("user", "application", "application__team")
+        ).select_related("user", "application")
         params = self.request.GET
 
         application = params.get("application", "")
