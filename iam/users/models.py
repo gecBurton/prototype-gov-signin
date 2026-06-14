@@ -17,6 +17,11 @@ class Team(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
 
+    @property
+    def active_applications(self):
+        """The team's applications that have not been soft-deleted."""
+        return self.applications.filter(is_active=True)
+
     def __str__(self):
         return self.name
 
@@ -134,6 +139,10 @@ class Application(AbstractApplication):
             "space separated, regardless of the team's allowed domains."
         ),
     )
+    # Applications are soft-deleted: "removing" one sets is_active=False so its
+    # credentials and sign-in history are preserved. Hidden apps are excluded
+    # from the management UI and refused at the authorize endpoint.
+    is_active = models.BooleanField(default=True)
     # Every application belongs to a team; there are no team-less apps. PROTECT
     # means a team with applications cannot be deleted until those apps are
     # moved or removed first, so domain restrictions can never be silently lost.
