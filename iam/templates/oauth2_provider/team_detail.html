@@ -76,7 +76,7 @@
 
 <h2 class="govuk-heading-m">Allowed email domains</h2>
 
-<p class="govuk-body">Users signing in to this team's applications must have an email address on one of these domains or their subdomains. If no domains are listed, all users are allowed.</p>
+<p class="govuk-body">Users signing in to this team's applications must have an email address on one of these domains or their subdomains. If no domains are listed, no one can sign in — add each domain you want to allow explicitly.</p>
 
 {% if team.allowed_email_domains.all %}
 <dl class="govuk-summary-list">
@@ -106,7 +106,7 @@
       <span class="govuk-visually-hidden">Error:</span> {{ domain_error }}
     </p>
     {% endif %}
-    <input class="govuk-input{% if domain_error %} govuk-input--error{% endif %}" type="text" name="domain" id="domain" required>
+    <input class="govuk-input{% if domain_error %} govuk-input--error{% endif %}" type="text" name="domain" id="domain" value="{{ domain_value|default:'gov.uk' }}" required>
   </div>
   <button class="govuk-button" data-module="govuk-button">Add domain</button>
 </form>

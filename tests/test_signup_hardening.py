@@ -97,7 +97,9 @@ def test_unverified_session_cannot_mint_a_verified_id_token(client, oauth_app):
     — and must never claim true — so no downstream service is misled into
     treating the attacker as the address owner.
     """
-    user = User.objects.create_user(email="unverified@cabinetoffice.gov.uk")
+    # example.com matches oauth_app's allowed domain so the authorize step is
+    # reached; this test is about the email_verified claim, not domain access.
+    user = User.objects.create_user(email="unverified@example.com")
     client.force_login(user)
 
     verifier, challenge = pkce_pair()
