@@ -2,6 +2,9 @@
 
 {% block title %}Sign-in logs{% endblock %}
 
+{# A four-column table needs more room than the default two-thirds layout. #}
+{% block grid_column_class %}govuk-grid-column-full{% endblock %}
+
 {% block inner_content %}
 <h1 class="govuk-heading-l">Sign-in logs</h1>
 
@@ -13,7 +16,7 @@
     <caption class="govuk-visually-hidden">Sign-in events</caption>
     <thead class="govuk-table__head">
       <tr class="govuk-table__row">
-        <th scope="col" class="govuk-table__header">When</th>
+        <th scope="col" class="govuk-table__header" style="white-space: nowrap">When</th>
         <th scope="col" class="govuk-table__header">User</th>
         <th scope="col" class="govuk-table__header">Application</th>
         <th scope="col" class="govuk-table__header">Team</th>
@@ -22,7 +25,7 @@
     <tbody class="govuk-table__body">
       {% for event in events %}
       <tr class="govuk-table__row">
-        <td class="govuk-table__cell">{{ event.created|date:"j M Y, H:i" }}</td>
+        <td class="govuk-table__cell" style="white-space: nowrap">{{ event.created|date:"j M Y, H:i" }}</td>
         <td class="govuk-table__cell">{{ event.user.email }}</td>
         <td class="govuk-table__cell">{{ event.application.name }}</td>
         <td class="govuk-table__cell">{{ event.application.team.name }}</td>
