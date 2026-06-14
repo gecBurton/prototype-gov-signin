@@ -84,10 +84,6 @@ def test_is_domain_allowed(db, domains, email, expected):
     assert _is_domain_allowed(Application(team=team), email) is expected
 
 
-def test_teamless_application_allows_all(db):
-    assert _is_domain_allowed(Application(), "anyone@anything.com") is True
-
-
 @pytest.mark.parametrize(
     "additional_emails,email,expected",
     [

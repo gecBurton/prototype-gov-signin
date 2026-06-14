@@ -186,8 +186,6 @@ class TeamDomainRemove(TeamMixin, View):
 
 
 def _is_domain_allowed(application, email):
-    if application.team is None:
-        return True
     # Individually allow-listed addresses (VIPs, pentesters) bypass the team's
     # domain restriction.
     if email.lower() in application.additional_email_list:

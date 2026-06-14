@@ -38,6 +38,7 @@ services:
         from allauth.account.models import EmailAddress
         from django.contrib.auth import get_user_model
         from oauth2_provider.models import get_application_model
+        from users.models import Team
 
         User = get_user_model()
         Application = get_application_model()
@@ -52,6 +53,9 @@ services:
             defaults={"primary": True, "verified": True},
         )
 
+        # Every application must belong to a team. The demo team has no allowed
+        # domains, so it admits all users.
+        team, _ = Team.objects.get_or_create(name="Demo")
         Application.objects.update_or_create(
             client_id="grafana",
             defaults={
@@ -60,6 +64,7 @@ services:
                 "redirect_uris": "http://localhost:3000/login/generic_oauth",
                 "client_secret": "grafana-secret",
                 "skip_authorization": True,
+                "team": team,
             },
         )
         PYEOF

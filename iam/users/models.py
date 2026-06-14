@@ -134,14 +134,11 @@ class Application(AbstractApplication):
             "space separated, regardless of the team's allowed domains."
         ),
     )
-    # A team-less application (admin-created, e.g. the demo Grafana client)
-    # allows all users, so deleting a team must not silently drop its apps'
-    # domain restrictions: PROTECT forces the apps to be deleted (or moved)
-    # first.
+    # Every application belongs to a team; there are no team-less apps. PROTECT
+    # means a team with applications cannot be deleted until those apps are
+    # moved or removed first, so domain restrictions can never be silently lost.
     team = models.ForeignKey(
         Team,
-        null=True,
-        blank=True,
         on_delete=models.PROTECT,
         related_name="applications",
     )
