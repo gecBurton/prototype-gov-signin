@@ -48,9 +48,7 @@ if not DEBUG:
 # Application definition
 
 INSTALLED_APPS = [
-    # Provides django.contrib.admin with the allauth-authenticated admin site
-    # (users.admin_site.IAMAdminSite) as the default site.
-    "users.admin_config.IAMAdminConfig",
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
