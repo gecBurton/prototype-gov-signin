@@ -3,6 +3,7 @@ from functools import cached_property
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -122,6 +123,48 @@ class TeamList(LoginRequiredMixin, ListView):
         return self.request.user.teams.all()
 
 
+class ApplicationDirectory(LoginRequiredMixin, ListView):
+    """A directory of every listed application, for any signed-in user.
+
+    Every listed application is shown (a catalogue of what exists), each tagged
+    with whether the viewer can actually sign in to it — using the same domain
+    check the authorize endpoint enforces (_is_domain_allowed), so the tag never
+    disagrees with what happens on click. Soft-deleted (is_active=False) and
+    opted-out (listed=False) applications are excluded entirely.
+    """
+
+    template_name = "oauth2_provider/application_directory.html"
+    context_object_name = "applications"
+    paginate_by = 20
+
+    def get_queryset(self):
+        return (
+            get_application_model()
+            .objects.filter(is_active=True, listed=True)
+            .select_related("team")
+            .prefetch_related("team__allowed_email_domains")
+            .order_by("name")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        email = self.request.user.email
+        # Tag each app on this page with the viewer's access. Pagination has
+        # already sliced the queryset to one page, so this badges (and the
+        # prefetch loads) only the apps actually shown — no per-app queries.
+        for application in context["applications"]:
+            application.user_has_access = _is_domain_allowed(application, email)
+        if context.get("is_paginated"):
+            page_obj = context["page_obj"]
+            # Page numbers with Paginator.ELLIPSIS standing in for gaps, which is
+            # exactly the GOV.UK pattern: first, …, neighbours, …, last.
+            context["page_range"] = page_obj.paginator.get_elided_page_range(
+                page_obj.number, on_each_side=1, on_ends=1
+            )
+            context["page_ellipsis"] = Paginator.ELLIPSIS
+        return context
+
+
 class TeamDetail(TeamMixin, View):
     template_name = "oauth2_provider/team_detail.html"
 
@@ -203,10 +246,19 @@ def _is_domain_allowed(application, email):
         return True
     # No domains means no one is admitted by domain (fail closed): a domain must
     # be added explicitly, so leaving the list empty never opens access to all.
-    allowed = application.team.allowed_email_domains
     labels = email.rsplit("@", 1)[-1].lower().split(".")
-    suffixes = [".".join(labels[i:]) for i in range(len(labels))]
-    return allowed.filter(domain__in=suffixes).exists()
+    suffixes = {".".join(labels[i:]) for i in range(len(labels))}
+    # Evaluate the team's domains in Python (over .all()) rather than with a
+    # filtered query, so a caller that prefetches allowed_email_domains (the
+    # Applications directory, rendering many apps) adds no per-app queries; the
+    # authorize path, with no prefetch, issues a single .all() instead. Behaviour
+    # is identical: a suffix of the user's domain must exactly match an allowed
+    # domain (matching on label boundaries, so evilcabinetoffice.gov.uk does not
+    # match cabinetoffice.gov.uk).
+    return any(
+        domain.domain in suffixes
+        for domain in application.team.allowed_email_domains.all()
+    )
 
 
 def _reject_weak_pkce(params):

@@ -143,6 +143,19 @@ class Application(AbstractApplication):
     # credentials and sign-in history are preserved. Hidden apps are excluded
     # from the management UI and refused at the authorize endpoint.
     is_active = models.BooleanField(default=True)
+    # Whether this application appears in the signed-in Applications directory
+    # (see users.views.ApplicationDirectory). Listed by default; a team opts an
+    # app out by unticking it — e.g. while it is in development, or if it is
+    # sensitive. Independent of is_active: opting out hides the app from the
+    # directory but leaves it fully usable for sign-in.
+    listed = models.BooleanField(
+        default=True,
+        help_text=(
+            "Show this application in the directory that all signed-in users "
+            "can browse. Untick to hide it — for example while it is still in "
+            "development, or if it is sensitive."
+        ),
+    )
     # Every application belongs to a team; there are no team-less apps. PROTECT
     # means a team with applications cannot be deleted until those apps are
     # moved or removed first, so domain restrictions can never be silently lost.

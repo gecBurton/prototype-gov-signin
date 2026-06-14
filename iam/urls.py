@@ -5,6 +5,7 @@ from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
 from users.views import (
     ApplicationDelete,
     ApplicationDetail,
+    ApplicationDirectory,
     ApplicationRegistration,
     ApplicationSecretRegenerate,
     ApplicationUpdate,
@@ -18,6 +19,7 @@ from users.views import (
 )
 
 management_urlpatterns = [
+    path("applications/", ApplicationDirectory.as_view(), name="applications"),
     path("teams/", TeamList.as_view(), name="teams"),
     path("teams/<uuid:pk>/", TeamDetail.as_view(), name="team"),
     path(
