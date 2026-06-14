@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from users.models import AllowedEmailDomain, Membership, Team, User
+from users.models import AllowedEmailDomain, Membership, SignInEvent, Team, User
 
 
 class MembershipInline(admin.TabularInline):
@@ -18,6 +18,23 @@ class AllowedEmailDomainInline(admin.TabularInline):
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("name",)
     inlines = (MembershipInline, AllowedEmailDomainInline)
+
+
+@admin.register(SignInEvent)
+class SignInEventAdmin(admin.ModelAdmin):
+    """Read-only audit view of application sign-ins."""
+
+    list_display = ("created", "user", "application")
+    list_filter = ("application", "created")
+    search_fields = ("user__email", "application__name")
+    date_hierarchy = "created"
+    readonly_fields = ("user", "application", "created")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(User)

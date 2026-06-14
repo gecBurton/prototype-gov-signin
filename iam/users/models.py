@@ -215,3 +215,27 @@ class Application(AbstractApplication):
                 name="application_hash_client_secret",
             ),
         ]
+
+
+class SignInEvent(models.Model):
+    """One row per successful sign-in: a user authorising an application.
+
+    Written from the authorize endpoint whenever a code is issued (including
+    the skip-authorization auto-approve path). Applications are soft-deleted, so
+    the foreign keys stay valid and the log keeps its history.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        "users.User", on_delete=models.CASCADE, related_name="sign_in_events"
+    )
+    application = models.ForeignKey(
+        "users.Application", on_delete=models.CASCADE, related_name="sign_in_events"
+    )
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created"]
+
+    def __str__(self):
+        return f"{self.user} → {self.application} at {self.created:%Y-%m-%d %H:%M}"
