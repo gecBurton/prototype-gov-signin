@@ -85,3 +85,58 @@ def test_listed_is_an_editable_opt_out_on_the_application_form():
     # Teams must be able to opt out via the management form, defaulting to listed.
     field = ApplicationForm().fields["listed"]
     assert field.initial is True
+
+
+# Access is badged, not filtered: every listed app is shown, tagged with whether
+# the viewer can sign in (same predicate the authorize endpoint enforces).
+
+
+def test_badge_shows_access_for_a_user_on_an_allowed_domain(client, directory_team):
+    directory_team.allowed_email_domains.create(domain="example.com")
+    _make_app(directory_team, name="Insider App")
+    _signed_in(client, email="insider@example.com")
+
+    content = client.get(URL).content.decode()
+
+    assert "Insider App" in content
+    assert "govuk-tag--green" in content
+    assert "govuk-tag--grey" not in content
+
+
+def test_badge_shows_no_access_for_an_ineligible_user_but_still_lists_the_app(
+    client, directory_team
+):
+    directory_team.allowed_email_domains.create(domain="example.com")
+    _make_app(directory_team, name="Restricted App")
+    _signed_in(client, email="outsider@other.org")
+
+    content = client.get(URL).content.decode()
+
+    assert "Restricted App" in content  # shown, not hidden
+    assert "govuk-tag--grey" in content
+    assert "govuk-tag--green" not in content
+
+
+def test_badge_shows_access_via_additional_emails(client, directory_team):
+    # The team allows no domains, but the app individually allow-lists the user.
+    _make_app(directory_team, name="VIP App", additional_emails="vip@other.org")
+    _signed_in(client, email="vip@other.org")
+
+    content = client.get(URL).content.decode()
+
+    assert "govuk-tag--green" in content
+
+
+def test_directory_issues_no_per_app_queries_for_access(
+    client, directory_team, django_assert_max_num_queries
+):
+    # The prefetch must keep the access check from doing a query per application.
+    directory_team.allowed_email_domains.create(domain="example.com")
+    for n in range(5):
+        _make_app(directory_team, name=f"App {n}")
+    _signed_in(client, email="insider@example.com")
+
+    # A fixed budget regardless of app count: session/auth + app list + team +
+    # prefetched domains. Five apps must not cost five extra domain queries.
+    with django_assert_max_num_queries(10):
+        client.get(URL)

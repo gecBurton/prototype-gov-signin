@@ -5,7 +5,7 @@
 {% block inner_content %}
 <h1 class="govuk-heading-l">Applications</h1>
 
-<p class="govuk-body">Services you can sign in to with your account. Not every service is listed, and being listed here does not guarantee you have access — that depends on each team's rules.</p>
+<p class="govuk-body">Services that can be signed in to with this account. The tag on each one shows whether you currently have access — that depends on each team's rules.</p>
 
 {% if applications %}
 
@@ -18,6 +18,13 @@
         {{ application.name }}
       {% endif %}
     </h2>
+    <p class="govuk-!-margin-top-0 govuk-!-margin-bottom-2">
+      {% if application.user_has_access %}
+        <strong class="govuk-tag govuk-tag--green">Access</strong>
+      {% else %}
+        <strong class="govuk-tag govuk-tag--grey">No access</strong>
+      {% endif %}
+    </p>
     <p class="govuk-caption-m govuk-!-margin-top-0 govuk-!-margin-bottom-1">{{ application.team.name }}</p>
     {% if application.description %}
       <p class="govuk-body">{{ application.description }}</p>

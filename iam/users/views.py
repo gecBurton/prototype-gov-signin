@@ -125,10 +125,11 @@ class TeamList(LoginRequiredMixin, ListView):
 class ApplicationDirectory(LoginRequiredMixin, ListView):
     """A directory of every listed application, for any signed-in user.
 
-    This is a catalogue of what exists, not of what the viewer can access:
-    domain restrictions are still enforced at the authorize endpoint, so an app
-    may appear here that a given user cannot actually sign in to. Soft-deleted
-    (is_active=False) and opted-out (listed=False) applications are excluded.
+    Every listed application is shown (a catalogue of what exists), each tagged
+    with whether the viewer can actually sign in to it — using the same domain
+    check the authorize endpoint enforces (_is_domain_allowed), so the tag never
+    disagrees with what happens on click. Soft-deleted (is_active=False) and
+    opted-out (listed=False) applications are excluded entirely.
     """
 
     template_name = "oauth2_provider/application_directory.html"
@@ -139,8 +140,18 @@ class ApplicationDirectory(LoginRequiredMixin, ListView):
             get_application_model()
             .objects.filter(is_active=True, listed=True)
             .select_related("team")
+            .prefetch_related("team__allowed_email_domains")
             .order_by("name")
         )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        email = self.request.user.email
+        # Tag each app with the viewer's access. The prefetch above means this
+        # adds no per-app queries.
+        for application in context["applications"]:
+            application.user_has_access = _is_domain_allowed(application, email)
+        return context
 
 
 class TeamDetail(TeamMixin, View):
@@ -224,10 +235,19 @@ def _is_domain_allowed(application, email):
         return True
     # No domains means no one is admitted by domain (fail closed): a domain must
     # be added explicitly, so leaving the list empty never opens access to all.
-    allowed = application.team.allowed_email_domains
     labels = email.rsplit("@", 1)[-1].lower().split(".")
-    suffixes = [".".join(labels[i:]) for i in range(len(labels))]
-    return allowed.filter(domain__in=suffixes).exists()
+    suffixes = {".".join(labels[i:]) for i in range(len(labels))}
+    # Evaluate the team's domains in Python (over .all()) rather than with a
+    # filtered query, so a caller that prefetches allowed_email_domains (the
+    # Applications directory, rendering many apps) adds no per-app queries; the
+    # authorize path, with no prefetch, issues a single .all() instead. Behaviour
+    # is identical: a suffix of the user's domain must exactly match an allowed
+    # domain (matching on label boundaries, so evilcabinetoffice.gov.uk does not
+    # match cabinetoffice.gov.uk).
+    return any(
+        domain.domain in suffixes
+        for domain in application.team.allowed_email_domains.all()
+    )
 
 
 def _reject_weak_pkce(params):
