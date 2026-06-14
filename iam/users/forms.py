@@ -1,8 +1,64 @@
 from allauth.account.forms import RequestLoginCodeForm
 from allauth.account.models import EmailAddress
+from django import forms
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from oauth2_provider.models import get_application_model
 
 User = get_user_model()
+
+
+class ApplicationForm(forms.ModelForm):
+    """Create/update form for an OAuth application."""
+
+    class Meta:
+        model = get_application_model()
+        fields = (
+            "name",
+            "client_type",
+            "redirect_uris",
+            "description",
+            "main_app_url",
+            "additional_emails",
+            "post_logout_redirect_uris",
+            "allowed_origins",
+            "skip_authorization",
+        )
+        # Only override the labels Django would otherwise mis-case or where the
+        # model name reads poorly; the rest fall back to the model fields'
+        # verbose names.
+        labels = {
+            "redirect_uris": "Redirect URIs",
+            "main_app_url": "Main app URL",
+            "post_logout_redirect_uris": "Post-logout redirect URIs",
+            "skip_authorization": "Skip the consent screen",
+        }
+        help_texts = {
+            "skip_authorization": (
+                "Tick to send users straight through without showing a consent "
+                "screen the first time they sign in to this application."
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # name and redirect_uris are blank=True on the model (the toolkit allows
+        # admin-seeded clients without them) but a team filling in this form must
+        # provide them, so they are required here.
+        self.fields["name"].required = True
+        self.fields["redirect_uris"].required = True
+
+    def clean_additional_emails(self):
+        emails = []
+        for token in self.cleaned_data["additional_emails"].split():
+            email = token.lower()
+            try:
+                validate_email(email)
+            except ValidationError:
+                raise ValidationError(f"{token} is not a valid email address.")
+            emails.append(email)
+        return " ".join(emails)
 
 
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):

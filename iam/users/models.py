@@ -115,6 +115,25 @@ class Application(AbstractApplication):
     """An OAuth2/OIDC client, owned and managed by a team."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    description = models.TextField(
+        blank=True,
+        help_text="What this application is for. Shown to the team, not to end users.",
+    )
+    main_app_url = models.URLField(
+        blank=True,
+        help_text="The application's home page, e.g. https://my-service.gov.uk.",
+    )
+    # Individual addresses that may sign in to this application even when their
+    # domain is not in the team's allowed domains — e.g. VIPs or pentesters on a
+    # personal address. Whitespace-separated; matched case-insensitively.
+    additional_emails = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Extra email addresses allowed to sign in to this application, "
+            "space separated, regardless of the team's allowed domains."
+        ),
+    )
     # A team-less application (admin-created, e.g. the demo Grafana client)
     # allows all users, so deleting a team must not silently drop its apps'
     # domain restrictions: PROTECT forces the apps to be deleted (or moved)
@@ -142,6 +161,11 @@ class Application(AbstractApplication):
     # Client secrets are always stored hashed; a lost secret is replaced,
     # never recovered.
     hash_client_secret = models.BooleanField(default=True, editable=False)
+
+    @property
+    def additional_email_list(self):
+        """The additional_emails text as a normalised list of addresses."""
+        return self.additional_emails.lower().split()
 
     def clean(self):
         super().clean()

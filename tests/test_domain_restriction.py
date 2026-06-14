@@ -88,6 +88,23 @@ def test_teamless_application_allows_all(db):
     assert _is_domain_allowed(Application(), "anyone@anything.com") is True
 
 
+@pytest.mark.parametrize(
+    "additional_emails,email,expected",
+    [
+        ("vip@blocked.com", "vip@blocked.com", True),  # listed VIP bypasses domain
+        ("vip@blocked.com", "VIP@BLOCKED.COM", True),  # case-insensitive
+        ("VIP@BLOCKED.COM", "vip@blocked.com", True),  # stored uppercase still matches
+        ("a@blocked.com b@blocked.com", "b@blocked.com", True),  # multiple, space sep
+        ("vip@blocked.com", "other@blocked.com", False),  # not listed, domain blocked
+        ("", "user@blocked.com", False),  # no additional emails
+    ],
+)
+def test_additional_emails_bypass_domain(db, additional_emails, email, expected):
+    team = _make_team("VIP Team", ["allowed.com"])
+    application = Application(team=team, additional_emails=additional_emails)
+    assert _is_domain_allowed(application, email) is expected
+
+
 # ---------------------------------------------------------------------------
 # Authorization view — GET (consent screen)
 # ---------------------------------------------------------------------------

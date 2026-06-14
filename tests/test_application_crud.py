@@ -149,6 +149,51 @@ def test_update_saves_changes(client, owner, team, app):
     assert app.name == "Renamed App"
 
 
+def test_update_saves_new_fields(client, owner, team, app):
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {
+            **_FORM_BASE,
+            "name": app.name,
+            "description": "Our service",
+            "main_app_url": "https://service.gov.uk",
+            "additional_emails": "VIP@example.com  tester@example.com",
+        },
+    )
+    assert response.status_code == 302
+    app.refresh_from_db()
+    assert app.description == "Our service"
+    assert app.main_app_url == "https://service.gov.uk"
+    # Stored normalised to lowercase, space separated.
+    assert app.additional_emails == "vip@example.com tester@example.com"
+
+
+@pytest.mark.parametrize(
+    "posted,expected_skip",
+    [({"skip_authorization": "on"}, True), ({}, False)],
+)
+def test_skip_authorization_checkbox(client, owner, team, app, posted, expected_skip):
+    client.force_login(owner)
+    client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {**_FORM_BASE, "name": app.name, **posted},
+    )
+    app.refresh_from_db()
+    assert app.skip_authorization is expected_skip
+
+
+def test_update_rejects_invalid_additional_email(client, owner, team, app):
+    client.force_login(owner)
+    response = client.post(
+        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        {**_FORM_BASE, "name": app.name, "additional_emails": "not-an-email"},
+    )
+    assert response.status_code == 200  # redisplayed with error
+    app.refresh_from_db()
+    assert app.additional_emails == ""
+
+
 # ---------------------------------------------------------------------------
 # ApplicationDelete
 # ---------------------------------------------------------------------------
@@ -213,6 +258,44 @@ def test_registration_blocked_for_non_member(client, stranger, team):
     )
     assert response.status_code == 404
     assert not Application.objects.filter(name="New App").exists()
+
+
+@pytest.mark.parametrize("missing", ["name", "client_type", "redirect_uris"])
+def test_registration_requires_mandatory_fields(client, owner, team, missing):
+    client.force_login(owner)
+    data = {
+        "name": "Req App",
+        "client_type": Application.CLIENT_CONFIDENTIAL,
+        "redirect_uris": "http://localhost/callback",
+    }
+    data[missing] = ""
+    before = Application.objects.count()
+    response = client.post(f"/o/teams/{team.pk}/applications/register/", data)
+    assert response.status_code == 200  # redisplayed with a validation error
+    assert Application.objects.count() == before
+
+
+def test_form_groups_fields_into_sections(client, owner, team):
+    client.force_login(owner)
+    html = client.get(f"/o/teams/{team.pk}/applications/register/").content.decode()
+    # Section headings, mandatory fields at the top.
+    for heading in ("Required", "Optional details", "Advanced OAuth settings"):
+        assert heading in html
+    # The sections convey required vs optional, so fields are not marked.
+    assert "Description" in html
+    assert "(optional)" not in html
+    # Locks in a label override from Meta.labels.
+    assert "Redirect URIs" in html
+
+
+def test_form_renders_every_field(client, owner, team):
+    # The sectioned template lists fields by name, so a field added to the form
+    # but not the template would silently go missing. Assert each one renders.
+    client.force_login(owner)
+    response = client.get(f"/o/teams/{team.pk}/applications/register/")
+    html = response.content.decode()
+    for field in response.context["form"].visible_fields():
+        assert f'id="{field.id_for_label}"' in html, f"{field.name} not rendered"
 
 
 @pytest.mark.parametrize(
