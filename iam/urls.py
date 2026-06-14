@@ -95,6 +95,14 @@ filtered_oidc_urlpatterns = [
 
 urlpatterns = [
     path("", TemplateView.as_view(template_name="start.html"), name="start"),
+    # Django's admin login is the only password form in this service and has no
+    # brute-force protection. Shadow it (as with signup/password below) so admin
+    # auth goes through allauth's passwordless, rate-limited login; admin access
+    # is then "signed in via allauth AND is_staff".
+    path(
+        "admin/login/",
+        RedirectView.as_view(pattern_name="account_login", permanent=False),
+    ),
     path("admin/", admin.site.urls),
     path(
         "o/",
