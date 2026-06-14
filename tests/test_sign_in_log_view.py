@@ -96,14 +96,24 @@ def test_filter_by_application(client, owner, app, second_app, stranger):
     assert [e.pk for e in response.context["events"]] == [wanted.pk]
 
 
-def test_filter_by_user_email(client, owner, app):
-    alice = User.objects.create_user(email="alice@example.com")
+@pytest.mark.parametrize(
+    "query",
+    [
+        "alice",  # local part
+        "alice.smith@dsit.gov.uk",  # the whole address
+        "dsit.gov.uk",  # just the domain
+        "DSIT.GOV.UK",  # case-insensitive
+        "smith",  # a fragment in the middle
+    ],
+)
+def test_filter_by_user_email_is_a_partial_match(client, owner, app, query):
+    alice = User.objects.create_user(email="alice.smith@dsit.gov.uk")
     bob = User.objects.create_user(email="bob@example.com")
     wanted = _event(alice, app)
     _event(bob, app)
     client.force_login(owner)
 
-    response = client.get(LOGS_URL, {"user": "alice"})
+    response = client.get(LOGS_URL, {"user": query})
     assert [e.pk for e in response.context["events"]] == [wanted.pk]
 
 
