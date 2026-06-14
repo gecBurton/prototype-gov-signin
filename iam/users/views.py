@@ -6,6 +6,7 @@ from functools import cached_property
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -185,38 +186,50 @@ class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
 
 
 class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
-    """Sign-in history for the applications the viewer manages.
+    """Sign-in history relevant to the viewer.
 
-    A user manages an application by being a member of its owning team (the same
-    membership that gates the team admin pages), so this shows every SignInEvent
-    for an application whose team the viewer belongs to — most recent first,
-    paginated. Soft-deleted applications keep their history and still appear.
+    Shows two kinds of SignInEvent: those for an application the viewer manages
+    (they belong to its owning team — the same membership that gates the team
+    admin pages), and the viewer's own sign-ins anywhere. So a team member sees
+    who is using their applications, while an end user who manages nothing still
+    sees their own login activity. Most recent first, paginated; soft-deleted
+    applications keep their history and still appear.
 
-    Filterable by application, user email and a created-date range; each filter
-    is an optional GET parameter so the filtered view is bookmarkable.
+    Filterable by application, user email and date; each filter is an optional
+    GET parameter so the filtered view is bookmarkable.
     """
 
     template_name = "oauth2_provider/sign_in_log.html"
     context_object_name = "events"
     paginate_by = 20
 
-    def _managed_applications(self):
+    def _visible_q(self):
+        """Events for an app the viewer manages, or the viewer's own sign-ins."""
+        user = self.request.user
+        return Q(application__team__in=user.teams.all()) | Q(user=user)
+
+    def _filterable_applications(self):
+        # Every application that can appear in the log: those the viewer manages,
+        # plus any they have personally signed in to. distinct() because the
+        # sign_in_events join can repeat an application.
+        user = self.request.user
         return (
             get_application_model()
-            .objects.filter(team__in=self.request.user.teams.all())
+            .objects.filter(Q(team__in=user.teams.all()) | Q(sign_in_events__user=user))
+            .distinct()
             .order_by("name")
         )
 
     def get_queryset(self):
         # SignInEvent.Meta already orders by -created (most recent first).
-        events = SignInEvent.objects.filter(
-            application__team__in=self.request.user.teams.all()
-        ).select_related("user", "application")
+        events = SignInEvent.objects.filter(self._visible_q()).select_related(
+            "user", "application"
+        )
         params = self.request.GET
 
         application = params.get("application", "")
-        # An unknown/malformed id simply matches nothing (the team scope above
-        # already prevents seeing another team's events), so no leak is possible.
+        # An unknown/malformed id simply matches nothing (the visibility scope
+        # above already bounds what can be seen), so no leak is possible.
         if application and _is_uuid(application):
             events = events.filter(application_id=application)
         if email := params.get("user", "").strip():
@@ -227,7 +240,7 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["applications"] = self._managed_applications()
+        context["applications"] = self._filterable_applications()
         # Echo the submitted values back so the form stays populated.
         context["filters"] = self.request.GET
         context["has_filters"] = any(

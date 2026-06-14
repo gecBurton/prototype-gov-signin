@@ -37,14 +37,36 @@ def test_logs_requires_login(client, db):
     assert "/accounts/login/" in response["Location"]
 
 
-def test_logs_show_only_managed_team_events(client, owner, app, other_team_app):
-    mine = _event(owner, app)
-    _event(owner, other_team_app)  # a team the viewer does not belong to
+def test_logs_show_managed_team_events(client, owner, app, other_team_app, stranger):
+    managed = _event(stranger, app)  # someone using an app the owner manages
+    # Another team's app, and not the owner's own sign-in: out of scope.
+    _event(stranger, other_team_app)
     client.force_login(owner)
 
     response = client.get(LOGS_URL)
     assert response.status_code == 200
-    assert [e.pk for e in response.context["events"]] == [mine.pk]
+    assert [e.pk for e in response.context["events"]] == [managed.pk]
+
+
+def test_logs_include_own_login_activity(client, stranger, other_team_app):
+    # stranger manages no teams, but their own sign-ins should still show.
+    own = _event(stranger, other_team_app)
+    someone_else = User.objects.create_user(email="someone@example.com")
+    _event(someone_else, other_team_app)  # not the viewer, not a managed app
+    client.force_login(stranger)
+
+    response = client.get(LOGS_URL)
+    assert [e.pk for e in response.context["events"]] == [own.pk]
+
+
+def test_application_dropdown_includes_apps_you_signed_into(
+    client, stranger, other_team_app
+):
+    _event(stranger, other_team_app)
+    client.force_login(stranger)
+
+    response = client.get(LOGS_URL)
+    assert other_team_app in list(response.context["applications"])
 
 
 def test_logs_most_recent_first(client, owner, app, stranger):
