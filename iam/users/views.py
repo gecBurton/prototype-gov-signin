@@ -123,8 +123,8 @@ class TeamList(LoginRequiredMixin, ListView):
         return self.request.user.teams.all()
 
 
-class ElidedPaginationMixin:
-    """Add GOV.UK-style elided page numbers to a paginated ListView.
+class PaginationMixin:
+    """Add GOV.UK-style page numbers to a paginated ListView.
 
     Exposes ``page_range`` (page numbers with Paginator.ELLIPSIS standing in for
     gaps — the GOV.UK pattern: first, …, neighbours, …, last) and
@@ -142,7 +142,7 @@ class ElidedPaginationMixin:
         return context
 
 
-class ApplicationDirectory(ElidedPaginationMixin, LoginRequiredMixin, ListView):
+class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
     """A directory of every listed application, for any signed-in user.
 
     Every listed application is shown (a catalogue of what exists), each tagged
@@ -176,7 +176,7 @@ class ApplicationDirectory(ElidedPaginationMixin, LoginRequiredMixin, ListView):
         return context
 
 
-class SignInLog(ElidedPaginationMixin, LoginRequiredMixin, ListView):
+class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
     """Sign-in history for the applications the viewer manages.
 
     A user manages an application by being a member of its owning team (the same
