@@ -1,0 +1,105 @@
+{% extends "oauth2_provider/base.html" %}
+
+{% block title %}Sign-in logs{% endblock %}
+
+{# Full width so the filters can sit in a column beside the results, per the
+   GOV.UK "filter a list of things" pattern. #}
+{% block grid_column_class %}govuk-grid-column-full{% endblock %}
+
+{% block inner_content %}
+<h1 class="govuk-heading-l">Sign-in logs</h1>
+
+<p class="govuk-body">Sign-ins to the applications your teams manage, and your own sign-ins, most recent first.</p>
+
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-one-third">
+    <form method="get">
+      <h2 class="govuk-heading-m">Filter</h2>
+      <div class="govuk-form-group">
+        <label class="govuk-label" for="application">Application</label>
+        <select class="govuk-select govuk-!-width-full" id="application" name="application">
+          <option value="">All applications</option>
+          {% for application in applications %}
+          <option value="{{ application.pk }}"{% if filters.application == application.pk|stringformat:'s' %} selected{% endif %}>{{ application.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="govuk-form-group">
+        <label class="govuk-label" for="user">User email</label>
+        <div id="user-hint" class="govuk-hint">Matches any part of the address, including the domain.</div>
+        <input class="govuk-input govuk-!-width-full" id="user" name="user" type="text" value="{{ filters.user }}" aria-describedby="user-hint">
+      </div>
+      <div class="govuk-form-group">
+        <fieldset class="govuk-fieldset" role="group" aria-describedby="date-hint">
+          <legend class="govuk-fieldset__legend">Date</legend>
+          <div id="date-hint" class="govuk-hint">For example, 27 3 2026</div>
+          <div class="govuk-date-input" id="date">
+            <div class="govuk-date-input__item">
+              <div class="govuk-form-group">
+                <label class="govuk-label govuk-date-input__label" for="date_day">Day</label>
+                <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="date_day" name="date_day" type="text" inputmode="numeric" value="{{ filters.date_day }}">
+              </div>
+            </div>
+            <div class="govuk-date-input__item">
+              <div class="govuk-form-group">
+                <label class="govuk-label govuk-date-input__label" for="date_month">Month</label>
+                <input class="govuk-input govuk-date-input__input govuk-input--width-2" id="date_month" name="date_month" type="text" inputmode="numeric" value="{{ filters.date_month }}">
+              </div>
+            </div>
+            <div class="govuk-date-input__item">
+              <div class="govuk-form-group">
+                <label class="govuk-label govuk-date-input__label" for="date_year">Year</label>
+                <input class="govuk-input govuk-date-input__input govuk-input--width-4" id="date_year" name="date_year" type="text" inputmode="numeric" value="{{ filters.date_year }}">
+              </div>
+            </div>
+          </div>
+        </fieldset>
+      </div>
+      <div class="govuk-button-group">
+        <button class="govuk-button" data-module="govuk-button">Apply filters</button>
+        {% if has_filters %}
+        <a class="govuk-link" href="{% url 'oauth2_provider:logs' %}">Clear filters</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  <div class="govuk-grid-column-two-thirds">
+    {% if events %}
+
+      <table class="govuk-table">
+        <caption class="govuk-visually-hidden">Sign-in events</caption>
+        <thead class="govuk-table__head">
+          <tr class="govuk-table__row">
+            <th scope="col" class="govuk-table__header" style="white-space: nowrap">When</th>
+            <th scope="col" class="govuk-table__header">User</th>
+            <th scope="col" class="govuk-table__header">Application</th>
+          </tr>
+        </thead>
+        <tbody class="govuk-table__body">
+          {% for event in events %}
+          <tr class="govuk-table__row">
+            <td class="govuk-table__cell" style="white-space: nowrap">{{ event.created|date:"j M Y, H:i" }}</td>
+            <td class="govuk-table__cell">{{ event.user.email }}</td>
+            <td class="govuk-table__cell">{{ event.application.name }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% include "oauth2_provider/_pagination.html" %}
+
+    {% else %}
+
+      <div class="govuk-inset-text">
+        {% if has_filters %}
+        <p class="govuk-body">No sign-ins match your filters.</p>
+        {% else %}
+        <p class="govuk-body">There are no sign-ins to show yet.</p>
+        {% endif %}
+      </div>
+
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
