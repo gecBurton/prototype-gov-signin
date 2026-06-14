@@ -4,15 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('users', '0007_signinevent'),
+        ("users", "0007_signinevent"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='application',
-            name='listed',
-            field=models.BooleanField(default=True, help_text='Show this application in the directory that all signed-in users can browse. Untick to hide it — for example while it is still in development, or if it is sensitive.'),
+            model_name="application",
+            name="listed",
+            field=models.BooleanField(
+                default=True,
+                help_text="Show this application in the directory that all signed-in users can browse. Untick to hide it — for example while it is still in development, or if it is sensitive.",
+            ),
         ),
     ]

@@ -1,7 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
 from oauth2_provider.models import get_application_model
-
 from users.forms import ApplicationForm
 from users.models import Team
 
