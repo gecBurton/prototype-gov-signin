@@ -15,6 +15,7 @@ from oauth2_provider.views import base as oidc_base_views
 from oauth2_provider.views import oidc as oidc_views
 
 from users.forms import ApplicationForm
+from users.models import SignInEvent
 
 # Credentials are issued by the server, never chosen by the user. The raw
 # secret is stashed in the session so the detail page can show it exactly once.
@@ -263,6 +264,20 @@ class AuthorizationView(oidc_base_views.AuthorizationView):
         if denied := self._check_domain(self.request, client_id):
             return denied
         return super().form_valid(form)
+
+    def create_authorization_response(self, request, scopes, credentials, allow):
+        # Both the consent (form_valid) and auto-approve (skip_authorization)
+        # paths funnel through here, so this is the single point where a sign-in
+        # is recorded. super() raises on failure, so we only log a granted code.
+        response = super().create_authorization_response(
+            request, scopes, credentials, allow
+        )
+        if allow:
+            application = get_application_model().objects.get(
+                client_id=credentials["client_id"]
+            )
+            SignInEvent.objects.create(user=request.user, application=application)
+        return response
 
 
 class DiscoveryInfoView(oidc_views.ConnectDiscoveryInfoView):
