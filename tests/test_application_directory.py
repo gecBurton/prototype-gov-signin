@@ -136,7 +136,43 @@ def test_directory_issues_no_per_app_queries_for_access(
         _make_app(directory_team, name=f"App {n}")
     _signed_in(client, email="insider@example.com")
 
-    # A fixed budget regardless of app count: session/auth + app list + team +
-    # prefetched domains. Five apps must not cost five extra domain queries.
+    # A fixed budget regardless of app count: session/auth + count + app list +
+    # team + prefetched domains. Five apps must not cost five extra domain queries.
     with django_assert_max_num_queries(10):
         client.get(URL)
+
+
+def test_directory_paginates_at_twenty_per_page(client, directory_team):
+    for n in range(25):
+        _make_app(directory_team, name=f"Paginated App {n:02d}")
+    _signed_in(client)
+
+    first = client.get(URL)
+    assert first.context["is_paginated"] is True
+    assert len(first.context["applications"]) == 20
+    assert b"govuk-pagination" in first.content
+
+    second = client.get(URL + "?page=2")
+    assert len(second.context["applications"]) == 5  # the remainder
+
+
+def test_directory_is_not_paginated_below_the_page_size(client, directory_team):
+    _make_app(directory_team, name="Only App")
+    _signed_in(client)
+
+    response = client.get(URL)
+
+    assert response.context["is_paginated"] is False
+    assert b"govuk-pagination" not in response.content
+
+
+def test_pagination_preserves_access_badging_on_later_pages(client, directory_team):
+    directory_team.allowed_email_domains.create(domain="example.com")
+    for n in range(25):
+        _make_app(directory_team, name=f"App {n:02d}")
+    _signed_in(client, email="insider@example.com")
+
+    # Page 2 apps are still badged for the viewer, not left untagged.
+    content = client.get(URL + "?page=2").content.decode()
+    assert "govuk-tag--green" in content
+    assert "govuk-tag--grey" not in content

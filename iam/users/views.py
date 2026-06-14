@@ -3,6 +3,7 @@ from functools import cached_property
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -134,6 +135,7 @@ class ApplicationDirectory(LoginRequiredMixin, ListView):
 
     template_name = "oauth2_provider/application_directory.html"
     context_object_name = "applications"
+    paginate_by = 20
 
     def get_queryset(self):
         return (
@@ -147,10 +149,19 @@ class ApplicationDirectory(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         email = self.request.user.email
-        # Tag each app with the viewer's access. The prefetch above means this
-        # adds no per-app queries.
+        # Tag each app on this page with the viewer's access. Pagination has
+        # already sliced the queryset to one page, so this badges (and the
+        # prefetch loads) only the apps actually shown — no per-app queries.
         for application in context["applications"]:
             application.user_has_access = _is_domain_allowed(application, email)
+        if context.get("is_paginated"):
+            page_obj = context["page_obj"]
+            # Page numbers with Paginator.ELLIPSIS standing in for gaps, which is
+            # exactly the GOV.UK pattern: first, …, neighbours, …, last.
+            context["page_range"] = page_obj.paginator.get_elided_page_range(
+                page_obj.number, on_each_side=1, on_ends=1
+            )
+            context["page_ellipsis"] = Paginator.ELLIPSIS
         return context
 
 
