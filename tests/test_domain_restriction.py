@@ -48,8 +48,8 @@ def app(db):
 
 
 @pytest.fixture
-def open_app(db):
-    return _make_app("Open App", _make_team("Open Team", []))
+def no_domain_app(db):
+    return _make_app("No Domain App", _make_team("No Domain Team", []))
 
 
 def _authorize_params(app):
@@ -65,7 +65,7 @@ def _authorize_params(app):
 @pytest.mark.parametrize(
     "domains,email,expected",
     [
-        ([], "anyone@anything.com", True),  # no domains = allow all
+        ([], "anyone@anything.com", False),  # no domains = deny all (fail closed)
         (["allowed.com"], "user@allowed.com", True),
         (["allowed.com"], "user@blocked.com", False),
         (["ALLOWED.COM"], "user@allowed.com", True),  # domains stored lowercase
@@ -121,13 +121,14 @@ def test_authorize_get_domain_check(
     assert response.status_code == expected_status
 
 
-def test_authorize_get_open_app_allows_all(
-    client, allowed_user, blocked_user, open_app
+def test_authorize_get_no_domain_app_denies_all(
+    client, allowed_user, blocked_user, no_domain_app
 ):
-    params = _authorize_params(open_app)
+    # A team that lists no domains admits no one (fail closed).
+    params = _authorize_params(no_domain_app)
     for user in (allowed_user, blocked_user):
         client.force_login(user)
-        assert client.get("/o/authorize/", params).status_code == 200
+        assert client.get("/o/authorize/", params).status_code == 403
 
 
 def test_authorize_get_unauthenticated_redirects(client, app):

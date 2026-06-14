@@ -234,6 +234,20 @@ def test_team_detail_shows_domains(client, owner, team):
     assert "example.com" in client.get(f"/o/teams/{team.pk}/").content.decode()
 
 
+def test_add_domain_form_defaults_to_gov_uk(client, owner, team):
+    client.force_login(owner)
+    html = client.get(f"/o/teams/{team.pk}/").content.decode()
+    assert 'value="gov.uk"' in html
+
+
+def test_add_domain_error_keeps_submitted_value(client, owner, team):
+    client.force_login(owner)
+    response = client.post(f"/o/teams/{team.pk}/domains/", {"domain": "uk"})
+    assert response.status_code == 200
+    # The bad value is kept so it isn't replaced by the gov.uk default.
+    assert 'value="uk"' in response.content.decode()
+
+
 def test_remove_domain_success(client, owner, team):
     allowed_domain = team.allowed_email_domains.create(domain="example.com")
     client.force_login(owner)

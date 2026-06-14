@@ -85,10 +85,11 @@ def demo_user(django_db_setup, django_db_blocker):
 @pytest.fixture(scope="session")
 def oauth_app(django_db_setup, django_db_blocker):
     with django_db_blocker.unblock():
-        # Every application belongs to a team; this team has no allowed domains,
-        # so it admits all users (the OIDC-flow tests don't exercise domain
-        # restrictions).
+        # Every application belongs to a team, and a team admits users only on
+        # the domains it lists. These tests sign in @example.com users, so allow
+        # that domain.
         team, _ = Team.objects.get_or_create(name="Demo Team")
+        team.allowed_email_domains.get_or_create(domain="example.com")
         app, _ = Application.objects.update_or_create(
             client_id=CLIENT_ID,
             defaults={

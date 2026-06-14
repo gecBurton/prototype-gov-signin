@@ -173,7 +173,7 @@ class TeamDomainAdd(TeamMixin, View):
         return render(
             request,
             "oauth2_provider/team_detail.html",
-            {"team": self.team, "domain_error": error},
+            {"team": self.team, "domain_error": error, "domain_value": domain},
         )
 
 
@@ -190,10 +190,12 @@ def _is_domain_allowed(application, email):
     # domain restriction.
     if email.lower() in application.additional_email_list:
         return True
+    # No domains means no one is admitted by domain (fail closed): a domain must
+    # be added explicitly, so leaving the list empty never opens access to all.
     allowed = application.team.allowed_email_domains
     labels = email.rsplit("@", 1)[-1].lower().split(".")
     suffixes = [".".join(labels[i:]) for i in range(len(labels))]
-    return allowed.filter(domain__in=suffixes).exists() or not allowed.exists()
+    return allowed.filter(domain__in=suffixes).exists()
 
 
 def _reject_weak_pkce(params):

@@ -53,9 +53,10 @@ services:
             defaults={"primary": True, "verified": True},
         )
 
-        # Every application must belong to a team. The demo team has no allowed
-        # domains, so it admits all users.
+        # Every application must belong to a team, and a team admits users only
+        # on the domains it lists. Allow example.com so the demo user can sign in.
         team, _ = Team.objects.get_or_create(name="Demo")
+        team.allowed_email_domains.get_or_create(domain="example.com")
         Application.objects.update_or_create(
             client_id="grafana",
             defaults={
