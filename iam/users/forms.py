@@ -30,18 +30,30 @@ class ApplicationForm(forms.ModelForm):
         model = get_application_model()
         fields = (
             "name",
-            "description",
-            "main_app_url",
             "client_type",
             "redirect_uris",
+            "description",
+            "main_app_url",
+            "additional_emails",
             "post_logout_redirect_uris",
             "allowed_origins",
-            "additional_emails",
         )
+        # Only override the labels Django would otherwise mis-case; the rest fall
+        # back to the model fields' verbose names.
+        labels = {
+            "redirect_uris": "Redirect URIs",
+            "main_app_url": "Main app URL",
+            "post_logout_redirect_uris": "Post-logout redirect URIs",
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["prompt_for_consent"].initial = not self.instance.skip_authorization
+        # name and redirect_uris are blank=True on the model (the toolkit allows
+        # admin-seeded clients without them) but a team filling in this form must
+        # provide them, so they are required here.
+        self.fields["name"].required = True
+        self.fields["redirect_uris"].required = True
 
     def clean_additional_emails(self):
         emails = []

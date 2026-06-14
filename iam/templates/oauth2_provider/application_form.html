@@ -1,5 +1,4 @@
 {% extends "oauth2_provider/base.html" %}
-{% load govuk_forms %}
 
 {% block title %}{% block form_title %}Edit {{ application.name }}{% endblock %}{% endblock %}
 
@@ -30,27 +29,22 @@
 
 <form method="post" action="{% block form_action_url %}{% url 'oauth2_provider:update' team_pk=team.pk pk=application.pk %}{% endblock %}">
   {% csrf_token %}
-  {% for field in form.visible_fields %}
-    {% if field.field.widget.input_type == 'checkbox' %}
-      <div class="govuk-form-group{% if field.errors %} govuk-form-group--error{% endif %}">
-        <div class="govuk-checkboxes">
-          <div class="govuk-checkboxes__item">
-            {{ field|as_govuk }}
-            <label class="govuk-label govuk-checkboxes__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-          </div>
-        </div>
-        {% if field.help_text %}<div class="govuk-hint">{{ field.help_text }}</div>{% endif %}
-        {% for error in field.errors %}<p class="govuk-error-message"><span class="govuk-visually-hidden">Error:</span> {{ error }}</p>{% endfor %}
-      </div>
-    {% else %}
-      <div class="govuk-form-group{% if field.errors %} govuk-form-group--error{% endif %}">
-        <label class="govuk-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-        {% if field.help_text %}<div class="govuk-hint" id="{{ field.id_for_label }}-hint">{{ field.help_text }}</div>{% endif %}
-        {% for error in field.errors %}<p class="govuk-error-message" id="{{ field.id_for_label }}-error"><span class="govuk-visually-hidden">Error:</span> {{ error }}</p>{% endfor %}
-        {{ field|as_govuk }}
-      </div>
-    {% endif %}
-  {% endfor %}
+
+  <h2 class="govuk-heading-m">Required</h2>
+  {% include "oauth2_provider/_form_field.html" with field=form.name %}
+  {% include "oauth2_provider/_form_field.html" with field=form.client_type %}
+  {% include "oauth2_provider/_form_field.html" with field=form.redirect_uris %}
+
+  <h2 class="govuk-heading-m">Optional details</h2>
+  {% include "oauth2_provider/_form_field.html" with field=form.description %}
+  {% include "oauth2_provider/_form_field.html" with field=form.main_app_url %}
+  {% include "oauth2_provider/_form_field.html" with field=form.additional_emails %}
+
+  <h2 class="govuk-heading-m">Advanced OAuth settings</h2>
+  {% include "oauth2_provider/_form_field.html" with field=form.post_logout_redirect_uris %}
+  {% include "oauth2_provider/_form_field.html" with field=form.allowed_origins %}
+  {% include "oauth2_provider/_form_field.html" with field=form.prompt_for_consent %}
+
   {% for field in form.hidden_fields %}{{ field }}{% endfor %}
 
   <div class="govuk-button-group">
