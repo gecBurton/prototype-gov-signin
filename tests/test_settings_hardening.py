@@ -33,8 +33,9 @@ def _resolved_authorize_url(debug):
         "PYTHONPATH": str(IAM_DIR),
         "SECRET_KEY": "settings-test-key",
         "DEBUG": debug,
-        # Required under DEBUG=false; irrelevant to what this test asserts.
+        # Both required under DEBUG=false; irrelevant to what this test asserts.
         "ALLOWED_HOSTS": "iam.example.gov.uk",
+        "OIDC_RSA_PRIVATE_KEY": "dummy-key",
         "GOOGLE_CLIENT_ID": "id",
         "GOOGLE_CLIENT_SECRET": "secret",
         "GOOGLE_AUTHORIZE_URL": "http://attacker.example/auth",
@@ -72,9 +73,12 @@ def _import_settings(env_overrides):
         "DJANGO_SETTINGS_MODULE": "settings",
         "PYTHONPATH": str(IAM_DIR),
         "SECRET_KEY": "settings-test-key",
-        # Satisfy the database guard so we isolate the ALLOWED_HOSTS check;
-        # django.setup() configures settings without opening a connection.
+        # Satisfy the database and OIDC-key guards by default so each test
+        # isolates the one guard it targets; django.setup() configures settings
+        # without opening a connection or signing a token. A test that targets
+        # the OIDC guard overrides OIDC_RSA_PRIVATE_KEY to "" to remove it.
         "POSTGRES_HOST": "localhost",
+        "OIDC_RSA_PRIVATE_KEY": "dummy-key",
         **env_overrides,
     }
     return subprocess.run(
@@ -140,7 +144,12 @@ def test_oidc_signing_key_required_in_production():
         key_file.rename(hidden)
     try:
         result = _import_settings(
-            {"DEBUG": "false", "ALLOWED_HOSTS": "iam.example.gov.uk"}
+            {
+                "DEBUG": "false",
+                "ALLOWED_HOSTS": "iam.example.gov.uk",
+                # Override the helper's default dummy key back to absent.
+                "OIDC_RSA_PRIVATE_KEY": "",
+            }
         )
     finally:
         if hidden.exists():
