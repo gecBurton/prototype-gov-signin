@@ -29,11 +29,20 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
     raise ImproperlyConfigured("The SECRET_KEY environment variable must be set.")
 
-ALLOWED_HOSTS = (
-    os.environ.get("ALLOWED_HOSTS", "").split(",")
-    if os.environ.get("ALLOWED_HOSTS")
-    else []
-)
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
+# An empty ALLOWED_HOSTS with DEBUG=False rejects every request with HTTP 400,
+# so a deployment that forgot to set it would be silently, totally broken.
+# Fail fast at startup instead — matching the SECRET_KEY treatment above. Under
+# DEBUG, Django falls back to localhost itself, so it stays optional in dev.
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured(
+        "The ALLOWED_HOSTS environment variable must be set when DEBUG is false "
+        "(comma-separated, e.g. ALLOWED_HOSTS=iam.example.gov.uk)."
+    )
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

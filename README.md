@@ -125,7 +125,7 @@ On first start, the `iam` service (see `docker-compose.yml`) seeds a demo user a
 
 ## Configuration
 
-The `SECRET_KEY` environment variable is always required — there is no fallback and the service refuses to start without one. `DEBUG` defaults to **false**; when false, HTTPS-only cookies and SSL redirect are enabled. The dev entry points (`docker compose up`, `make run`, pytest) set `DEBUG=true` and an insecure dev `SECRET_KEY` for you, so a deployed instance only needs to set a real `SECRET_KEY` and leave `DEBUG` unset.
+The `SECRET_KEY` environment variable is always required — there is no fallback and the service refuses to start without one. `DEBUG` defaults to **false**; when false, HTTPS-only cookies and SSL redirect are enabled, and `ALLOWED_HOSTS` (comma-separated, e.g. `ALLOWED_HOSTS=iam.example.gov.uk`) becomes required — the service refuses to start without it, rather than booting and rejecting every request with HTTP 400. The dev entry points (`docker compose up`, `make run`, pytest) set `DEBUG=true` and an insecure dev `SECRET_KEY` for you (and under `DEBUG` Django supplies its own host fallback), so a deployed instance needs to set a real `SECRET_KEY` and `ALLOWED_HOSTS`, and leave `DEBUG` unset.
 
 Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` is set, codes are sent via GOV.UK Notify; otherwise if `EMAIL_HOST` is set, plain SMTP is used (docker compose points this at Mailpit); otherwise emails are printed to the console.
 
