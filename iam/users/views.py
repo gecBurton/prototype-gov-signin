@@ -6,7 +6,7 @@ from functools import cached_property
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -19,7 +19,7 @@ from oauth2_provider.views import base as oidc_base_views
 from oauth2_provider.views import oidc as oidc_views
 
 from users.forms import ApplicationForm
-from users.models import SignInEvent
+from users.models import AllowedEmailDomain, SignInEvent
 
 # Credentials are issued by the server, never chosen by the user. The raw
 # secret is stashed in the session so the detail page can show it exactly once.
@@ -166,22 +166,40 @@ class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        return (
+        applications = (
             get_application_model()
             .objects.filter(is_active=True, listed=True)
-            .select_related("team")
-            .prefetch_related("team__allowed_email_domains")
             .order_by("name")
         )
+        if search := self.request.GET.get("search", "").strip():
+            applications = applications.filter(
+                Q(name__icontains=search) | Q(description__icontains=search)
+            )
+        # The candidate domain suffixes depend only on the viewer's email (fixed
+        # per request), so access annotates as a correlated EXISTS: the team
+        # allows one of those suffixes. That keeps badging and the access-only
+        # filter in SQL, with normal LIMIT/OFFSET pagination and no per-app pass.
+        #
+        # The per-app additional_emails allowlist is deliberately NOT folded in
+        # (it is whitespace-delimited free text, not cleanly matchable in SQL).
+        # It is still fully enforced at the authorize endpoint; only the
+        # directory's access tag reflects team-domain access alone.
+        suffixes = _email_domain_suffixes(self.request.user.email)
+        applications = applications.annotate(
+            user_has_access=Exists(
+                AllowedEmailDomain.objects.filter(
+                    team=OuterRef("team"), domain__in=list(suffixes)
+                )
+            )
+        )
+        if self.request.GET.get("access_only"):
+            applications = applications.filter(user_has_access=True)
+        return applications
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        email = self.request.user.email
-        # Tag each app on this page with the viewer's access. Pagination has
-        # already sliced the queryset to one page, so this badges (and the
-        # prefetch loads) only the apps actually shown — no per-app queries.
-        for application in context["applications"]:
-            application.user_has_access = _is_domain_allowed(application, email)
+        context["search"] = self.request.GET.get("search", "")
+        context["access_only"] = bool(self.request.GET.get("access_only"))
         return context
 
 
@@ -356,6 +374,18 @@ def _parse_date_parts(params, prefix):
         return None
 
 
+def _email_domain_suffixes(email):
+    """The label-boundary suffixes of an email's domain.
+
+    ``a@deep.nested.gov.uk`` → ``{deep.nested.gov.uk, nested.gov.uk, gov.uk,
+    uk}``. A team admits the address when one of its allowed domains exactly
+    equals one of these, so cabinetoffice.gov.uk admits @x.cabinetoffice.gov.uk
+    but evilcabinetoffice.gov.uk never matches cabinetoffice.gov.uk.
+    """
+    labels = email.rsplit("@", 1)[-1].lower().split(".")
+    return {".".join(labels[i:]) for i in range(len(labels))}
+
+
 def _is_domain_allowed(application, email):
     # Individually allow-listed addresses (VIPs, pentesters) bypass the team's
     # domain restriction.
@@ -363,15 +393,9 @@ def _is_domain_allowed(application, email):
         return True
     # No domains means no one is admitted by domain (fail closed): a domain must
     # be added explicitly, so leaving the list empty never opens access to all.
-    labels = email.rsplit("@", 1)[-1].lower().split(".")
-    suffixes = {".".join(labels[i:]) for i in range(len(labels))}
-    # Evaluate the team's domains in Python (over .all()) rather than with a
-    # filtered query, so a caller that prefetches allowed_email_domains (the
-    # Applications directory, rendering many apps) adds no per-app queries; the
-    # authorize path, with no prefetch, issues a single .all() instead. Behaviour
-    # is identical: a suffix of the user's domain must exactly match an allowed
-    # domain (matching on label boundaries, so evilcabinetoffice.gov.uk does not
-    # match cabinetoffice.gov.uk).
+    # Single-application check (the authorize endpoint), so a Python pass over
+    # .all() is fine; the directory builds the equivalent EXISTS in SQL instead.
+    suffixes = _email_domain_suffixes(email)
     return any(
         domain.domain in suffixes
         for domain in application.team.allowed_email_domains.all()

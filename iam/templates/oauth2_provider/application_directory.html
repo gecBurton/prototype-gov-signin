@@ -5,7 +5,21 @@
 {% block inner_content %}
 <h1 class="govuk-heading-l">Applications</h1>
 
-<p class="govuk-body">Services that can be signed in to with this account. The tag on each one shows whether you currently have access — that depends on each team's rules.</p>
+<p class="govuk-body">Services that can be signed in to with this account. Applications you cannot currently access are tagged — that depends on each team's rules.</p>
+
+<form method="get" class="govuk-!-margin-bottom-6">
+  <div class="govuk-form-group govuk-!-margin-bottom-3">
+    <label class="govuk-label" for="search">Search by name or description</label>
+    <input class="govuk-input govuk-input--width-20" id="search" name="search" type="text" value="{{ search }}">
+  </div>
+  <div class="govuk-checkboxes govuk-checkboxes--small govuk-!-margin-bottom-3" data-module="govuk-checkboxes">
+    <div class="govuk-checkboxes__item">
+      <input class="govuk-checkboxes__input" id="access_only" name="access_only" type="checkbox" value="1"{% if access_only %} checked{% endif %}>
+      <label class="govuk-label govuk-checkboxes__label" for="access_only">Only show applications I can access</label>
+    </div>
+  </div>
+  <button class="govuk-button" data-module="govuk-button">Search</button>
+</form>
 
 {% if applications %}
 
@@ -18,14 +32,11 @@
         {{ application.name }}
       {% endif %}
     </h2>
+    {% if not application.user_has_access %}
     <p class="govuk-!-margin-top-0 govuk-!-margin-bottom-2">
-      {% if application.user_has_access %}
-        <strong class="govuk-tag govuk-tag--green">Access</strong>
-      {% else %}
-        <strong class="govuk-tag govuk-tag--grey">No access</strong>
-      {% endif %}
+      <strong class="govuk-tag govuk-tag--grey">No access</strong>
     </p>
-    <p class="govuk-caption-m govuk-!-margin-top-0 govuk-!-margin-bottom-1">{{ application.team.name }}</p>
+    {% endif %}
     {% if application.description %}
       <p class="govuk-body">{{ application.description }}</p>
     {% endif %}
@@ -37,7 +48,11 @@
 {% else %}
 
   <div class="govuk-inset-text">
-    <p class="govuk-body">There are no applications to show yet.</p>
+    {% if search or access_only %}
+      <p class="govuk-body">No applications match your search.</p>
+    {% else %}
+      <p class="govuk-body">There are no applications to show yet.</p>
+    {% endif %}
   </div>
 
 {% endif %}
