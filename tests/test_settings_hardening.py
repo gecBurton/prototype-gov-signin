@@ -104,6 +104,51 @@ def test_allowed_hosts_required_in_production(env, returncode, in_stderr):
     assert in_stderr in result.stderr
 
 
+@pytest.mark.parametrize(
+    "env,returncode,in_stderr",
+    [
+        # A key supplied via the env var satisfies the check in production.
+        (
+            {
+                "DEBUG": "false",
+                "ALLOWED_HOSTS": "iam.example.gov.uk",
+                "OIDC_RSA_PRIVATE_KEY": "dummy-key",
+            },
+            0,
+            "",
+        ),
+        # Under DEBUG it stays optional (dev generates a key separately).
+        ({"DEBUG": "true"}, 0, ""),
+    ],
+)
+def test_oidc_signing_key_present_or_optional(env, returncode, in_stderr):
+    result = _import_settings(env)
+    assert result.returncode == returncode, result.stderr
+    assert in_stderr in result.stderr
+
+
+def test_oidc_signing_key_required_in_production():
+    """With no key (env var or oidc.key file) the service must refuse to start,
+    rather than booting and only failing when the first token is signed.
+
+    settings.py falls back to reading BASE_DIR/oidc.key, which a dev machine
+    has, so hide it for the duration of this check to exercise the absent path.
+    """
+    key_file = IAM_DIR / "oidc.key"
+    hidden = key_file.with_suffix(".key.hidden-for-test")
+    if key_file.exists():
+        key_file.rename(hidden)
+    try:
+        result = _import_settings(
+            {"DEBUG": "false", "ALLOWED_HOSTS": "iam.example.gov.uk"}
+        )
+    finally:
+        if hidden.exists():
+            hidden.rename(key_file)
+    assert result.returncode == 1, result.stderr
+    assert "OIDC" in result.stderr
+
+
 def test_login_code_rate_limit_tightened_without_clobbering_defaults():
     """The login-by-code request keeps hourly per-recipient and per-IP caps,
     and our partial override must not drop allauth's other rate limits."""

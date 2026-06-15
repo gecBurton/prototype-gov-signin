@@ -265,6 +265,17 @@ if not _oidc_key:
     _key_path = BASE_DIR / "oidc.key"
     if _key_path.exists():
         _oidc_key = _key_path.read_text()
+# The RSA key signs every ID token, so it is the root of trust. Without it the
+# service boots fine and only fails when the first token-signing request comes
+# in. Fail fast at startup instead, matching SECRET_KEY/ALLOWED_HOSTS. Skipped
+# under DEBUG (dev generates a key separately) and not enforced when the dummy
+# build-time value is present, since collectstatic never signs a token.
+if not DEBUG and not _oidc_key:
+    raise ImproperlyConfigured(
+        "No OIDC signing key found. Set the OIDC_RSA_PRIVATE_KEY environment "
+        "variable or provide iam/oidc.key (generate one with "
+        "`openssl genrsa -out iam/oidc.key 4096`)."
+    )
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
