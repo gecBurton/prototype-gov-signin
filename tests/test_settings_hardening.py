@@ -33,6 +33,8 @@ def _resolved_authorize_url(debug):
         "PYTHONPATH": str(IAM_DIR),
         "SECRET_KEY": "settings-test-key",
         "DEBUG": debug,
+        # Required under DEBUG=false; irrelevant to what this test asserts.
+        "ALLOWED_HOSTS": "iam.example.gov.uk",
         "GOOGLE_CLIENT_ID": "id",
         "GOOGLE_CLIENT_SECRET": "secret",
         "GOOGLE_AUTHORIZE_URL": "http://attacker.example/auth",
@@ -57,6 +59,49 @@ def _resolved_authorize_url(debug):
 )
 def test_google_endpoint_override_only_honoured_in_debug(debug, expected):
     assert _resolved_authorize_url(debug) == expected
+
+
+def _import_settings(env_overrides):
+    """Import settings in a clean subprocess; return the CompletedProcess.
+
+    Settings resolution (ALLOWED_HOSTS, the Google overrides) happens at import
+    time, so it must be exercised out-of-process rather than via override_settings.
+    """
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "DJANGO_SETTINGS_MODULE": "settings",
+        "PYTHONPATH": str(IAM_DIR),
+        "SECRET_KEY": "settings-test-key",
+        # Satisfy the database guard so we isolate the ALLOWED_HOSTS check;
+        # django.setup() configures settings without opening a connection.
+        "POSTGRES_HOST": "localhost",
+        **env_overrides,
+    }
+    return subprocess.run(
+        [sys.executable, "-c", "import django; django.setup()"],
+        env=env,
+        cwd=str(IAM_DIR),
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "env,returncode,in_stderr",
+    [
+        # Production with no ALLOWED_HOSTS must refuse to start, rather than
+        # booting and then 400ing every request.
+        ({"DEBUG": "false"}, 1, "ALLOWED_HOSTS"),
+        # Production with ALLOWED_HOSTS set starts fine.
+        ({"DEBUG": "false", "ALLOWED_HOSTS": "iam.example.gov.uk"}, 0, ""),
+        # Under DEBUG it stays optional (Django falls back to localhost).
+        ({"DEBUG": "true"}, 0, ""),
+    ],
+)
+def test_allowed_hosts_required_in_production(env, returncode, in_stderr):
+    result = _import_settings(env)
+    assert result.returncode == returncode, result.stderr
+    assert in_stderr in result.stderr
 
 
 def test_login_code_rate_limit_tightened_without_clobbering_defaults():
