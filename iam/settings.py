@@ -228,6 +228,10 @@ else:
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 
+# Enforce the global sign-in domain allow-list on Google logins too, so Google
+# cannot bypass the login-code form's check (see users.adapters).
+SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
+
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
