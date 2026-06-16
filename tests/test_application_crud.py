@@ -163,8 +163,8 @@ def test_update_saves_new_fields(client, owner, team, app):
     app.refresh_from_db()
     assert app.description == "Our service"
     assert app.main_app_url == "https://service.gov.uk"
-    # Stored normalised to lowercase, space separated.
-    assert app.additional_emails == "vip@example.com tester@example.com"
+    # Stored as a normalised lowercase list.
+    assert app.additional_emails == ["vip@example.com", "tester@example.com"]
 
 
 @pytest.mark.parametrize(
@@ -189,7 +189,7 @@ def test_update_rejects_invalid_additional_email(client, owner, team, app):
     )
     assert response.status_code == 200  # redisplayed with error
     app.refresh_from_db()
-    assert app.additional_emails == ""
+    assert app.additional_emails == []
 
 
 def test_update_enforces_https_post_logout_redirect(client, owner, team, app):

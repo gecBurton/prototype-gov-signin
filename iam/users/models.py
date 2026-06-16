@@ -2,6 +2,7 @@ import uuid
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 from oauth2_provider.models import AbstractApplication
@@ -131,9 +132,10 @@ class Application(AbstractApplication):
     # Individual addresses that may sign in to this application even when their
     # domain is not in the team's allowed domains — e.g. VIPs or pentesters on a
     # personal address. Whitespace-separated; matched case-insensitively.
-    additional_emails = models.TextField(
+    additional_emails = ArrayField(
+        models.EmailField(),
         blank=True,
-        default="",
+        default=list,
         help_text=(
             "Extra email addresses allowed to sign in to this application, "
             "space separated, regardless of the team's allowed domains."
@@ -183,8 +185,22 @@ class Application(AbstractApplication):
 
     @property
     def additional_email_list(self):
-        """The additional_emails text as a normalised list of addresses."""
-        return self.additional_emails.lower().split()
+        """The additional-emails allow-list as normalised lowercase addresses.
+
+        save() already lowercases what is stored; this also normalises an
+        unsaved instance, so the authorize-time membership check is reliable
+        either way.
+        """
+        return [email.lower() for email in self.additional_emails]
+
+    def save(self, *args, **kwargs):
+        # Normalise the allow-list (lowercased, blanks dropped) so the exact
+        # array-membership lookups in the sign-in gate (users.domains) and the
+        # authorize check stay reliable however the value was entered.
+        self.additional_emails = [
+            email.strip().lower() for email in self.additional_emails if email.strip()
+        ]
+        super().save(*args, **kwargs)
 
     def clean(self):
         super().clean()
