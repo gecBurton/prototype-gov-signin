@@ -51,12 +51,16 @@ def test_is_domain_allowed(make_team, domains, email, expected):
 @pytest.mark.parametrize(
     "additional_emails,email,expected",
     [
-        ("vip@blocked.com", "vip@blocked.com", True),  # listed VIP bypasses domain
-        ("vip@blocked.com", "VIP@BLOCKED.COM", True),  # case-insensitive
-        ("VIP@BLOCKED.COM", "vip@blocked.com", True),  # stored uppercase still matches
-        ("a@blocked.com b@blocked.com", "b@blocked.com", True),  # multiple, space sep
-        ("vip@blocked.com", "other@blocked.com", False),  # not listed, domain blocked
-        ("", "user@blocked.com", False),  # no additional emails
+        (["vip@blocked.com"], "vip@blocked.com", True),  # listed VIP bypasses domain
+        (["vip@blocked.com"], "VIP@BLOCKED.COM", True),  # case-insensitive
+        (
+            ["VIP@BLOCKED.COM"],
+            "vip@blocked.com",
+            True,
+        ),  # stored uppercase still matches
+        (["a@blocked.com", "b@blocked.com"], "b@blocked.com", True),  # multiple
+        (["vip@blocked.com"], "other@blocked.com", False),  # not listed, domain blocked
+        ([], "user@blocked.com", False),  # no additional emails
     ],
 )
 def test_additional_emails_bypass_domain(make_team, additional_emails, email, expected):

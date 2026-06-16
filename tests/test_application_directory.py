@@ -121,7 +121,7 @@ def test_directory_badge_ignores_additional_emails(client, directory_team):
     # The directory access tag is computed in SQL from team domains only. The
     # per-app additional_emails allowlist is still honoured at the authorize
     # endpoint (so this user CAN sign in), but is not reflected in the badge.
-    _make_app(directory_team, name="VIP App", additional_emails="vip@other.org")
+    _make_app(directory_team, name="VIP App", additional_emails=["vip@other.org"])
     _signed_in(client, email="vip@other.org")
 
     content = client.get(URL).content.decode()

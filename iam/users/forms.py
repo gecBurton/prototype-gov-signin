@@ -14,6 +14,19 @@ User = get_user_model()
 class ApplicationForm(forms.ModelForm):
     """Create/update form for an OAuth application."""
 
+    # The model field is a Postgres array; keep the friendlier whitespace-
+    # separated textarea here rather than allauth/ArrayField's comma-separated
+    # default. clean_additional_emails turns the text into the stored list, and
+    # __init__ renders the stored list back as text when editing.
+    additional_emails = forms.CharField(
+        required=False,
+        widget=forms.Textarea,
+        help_text=(
+            "Extra email addresses allowed to sign in to this application, "
+            "space separated, regardless of the team's allowed domains."
+        ),
+    )
+
     class Meta:
         model = get_application_model()
         fields = (
@@ -52,6 +65,11 @@ class ApplicationForm(forms.ModelForm):
         # provide them, so they are required here.
         self.fields["name"].required = True
         self.fields["redirect_uris"].required = True
+        # Render the stored list back as whitespace-separated text when editing.
+        if self.instance and self.instance.pk:
+            self.initial["additional_emails"] = " ".join(
+                self.instance.additional_emails
+            )
 
     def clean_additional_emails(self):
         emails = []
@@ -62,7 +80,7 @@ class ApplicationForm(forms.ModelForm):
             except ValidationError:
                 raise ValidationError(f"{token} is not a valid email address.")
             emails.append(email)
-        return " ".join(emails)
+        return emails
 
 
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):

@@ -74,6 +74,28 @@ def test_fail_closed_when_no_team_domains(db, settings):
     assert is_signin_domain_allowed("anyone@anywhere.example") is False
 
 
+def test_additional_emails_admitted(make_team, make_application):
+    # A user individually listed on an application's additional_emails is
+    # admitted by the global gate even though their domain is neither .gov.uk
+    # nor allowed by any team — so they can sign in and reach the app that lists
+    # them, matching the per-application bypass.
+    team = make_team("Vendor")  # no allowed domains
+    make_application(
+        team, additional_emails=["vip@outside.example", "pen@outside.example"]
+    )
+    assert is_signin_domain_allowed("vip@outside.example") is True
+    assert is_signin_domain_allowed("VIP@OUTSIDE.EXAMPLE") is True  # case-insensitive
+    # A different address on the same domain is still refused.
+    assert is_signin_domain_allowed("stranger@outside.example") is False
+
+
+def test_additional_emails_on_inactive_app_not_admitted(make_team, make_application):
+    # Soft-deleted applications must not keep granting sign-in.
+    team = make_team("Vendor")
+    make_application(team, additional_emails=["vip@outside.example"], is_active=False)
+    assert is_signin_domain_allowed("vip@outside.example") is False
+
+
 # --- login-by-code path ------------------------------------------------------
 
 

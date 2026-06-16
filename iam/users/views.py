@@ -181,10 +181,10 @@ class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
         # allows one of those suffixes. That keeps badging and the access-only
         # filter in SQL, with normal LIMIT/OFFSET pagination and no per-app pass.
         #
-        # The per-app additional_emails allowlist is deliberately NOT folded in
-        # (it is whitespace-delimited free text, not cleanly matchable in SQL).
-        # It is still fully enforced at the authorize endpoint; only the
-        # directory's access tag reflects team-domain access alone.
+        # The per-app additional_emails allowlist is deliberately NOT folded
+        # into this access badge: the badge reflects team-domain access alone.
+        # additional_emails is still fully enforced at the authorize endpoint
+        # and the global sign-in gate (users.domains).
         suffixes = email_domain_suffixes(self.request.user.email)
         applications = applications.annotate(
             user_has_access=Exists(
