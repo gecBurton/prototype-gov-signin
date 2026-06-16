@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from oauth2_provider.models import get_application_model
 
+from users.domains import is_signin_domain_allowed
+
 User = get_user_model()
 
 
@@ -89,6 +91,12 @@ class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
     def clean_email(self) -> str:
         email = self.cleaned_data.get("email")
         if email:
+            # Global sign-in gate: refuse domains no team would admit, before
+            # creating any account row (see users.domains.is_signin_domain_allowed).
+            # Applies to returning users too — this gates signing in, not just
+            # first enrolment.
+            if not is_signin_domain_allowed(email):
+                raise ValidationError("That email domain is not allowed to sign in.")
             user, created = User.objects.get_or_create(email=email)
             if created:
                 user.set_unusable_password()

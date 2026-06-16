@@ -22,6 +22,13 @@ User = get_user_model()
 GOOGLE_UID = "115147437611111111111"
 
 
+@pytest.fixture(autouse=True)
+def allow_login_domains(make_team):
+    # The Google adapter applies the global domain allow-list; permit the domain
+    # these tests use (see users.domains.is_signin_domain_allowed).
+    make_team("Google login tests", domains=["example.com"])
+
+
 @pytest.fixture
 def social_request(db):
     request = RequestFactory().get("/accounts/google/login/callback/")

@@ -18,6 +18,7 @@ from oauth2_provider.views import application as base_views
 from oauth2_provider.views import base as oidc_base_views
 from oauth2_provider.views import oidc as oidc_views
 
+from users.domains import email_domain_suffixes
 from users.forms import ApplicationForm
 from users.models import AllowedEmailDomain, SignInEvent
 
@@ -184,7 +185,7 @@ class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
         # (it is whitespace-delimited free text, not cleanly matchable in SQL).
         # It is still fully enforced at the authorize endpoint; only the
         # directory's access tag reflects team-domain access alone.
-        suffixes = _email_domain_suffixes(self.request.user.email)
+        suffixes = email_domain_suffixes(self.request.user.email)
         applications = applications.annotate(
             user_has_access=Exists(
                 AllowedEmailDomain.objects.filter(
@@ -374,18 +375,6 @@ def _parse_date_parts(params, prefix):
         return None
 
 
-def _email_domain_suffixes(email):
-    """The label-boundary suffixes of an email's domain.
-
-    ``a@deep.nested.gov.uk`` → ``{deep.nested.gov.uk, nested.gov.uk, gov.uk,
-    uk}``. A team admits the address when one of its allowed domains exactly
-    equals one of these, so cabinetoffice.gov.uk admits @x.cabinetoffice.gov.uk
-    but evilcabinetoffice.gov.uk never matches cabinetoffice.gov.uk.
-    """
-    labels = email.rsplit("@", 1)[-1].lower().split(".")
-    return {".".join(labels[i:]) for i in range(len(labels))}
-
-
 def _is_domain_allowed(application, email):
     # Individually allow-listed addresses (VIPs, pentesters) bypass the team's
     # domain restriction.
@@ -395,7 +384,7 @@ def _is_domain_allowed(application, email):
     # be added explicitly, so leaving the list empty never opens access to all.
     # Single-application check (the authorize endpoint), so a Python pass over
     # .all() is fine; the directory builds the equivalent EXISTS in SQL instead.
-    suffixes = _email_domain_suffixes(email)
+    suffixes = email_domain_suffixes(email)
     return any(
         domain.domain in suffixes
         for domain in application.team.allowed_email_domains.all()

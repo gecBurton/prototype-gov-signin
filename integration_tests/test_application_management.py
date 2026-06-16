@@ -96,8 +96,10 @@ def test_domain_restricted_application_blocks_user(
         page.locator("dt.govuk-summary-list__key", has_text="allowed.com")
     ).to_be_visible()
 
-    # A user with a blocked domain tries to authorize.
-    blocked_email = f"e2e-{uuid.uuid4().hex[:8]}@blocked.com"
+    # A user who may sign in (a .gov.uk address passes the global sign-in gate)
+    # but whose domain is not on this app's team allow-list ("allowed.com") is
+    # blocked at the authorize step.
+    blocked_email = f"e2e-{uuid.uuid4().hex[:8]}@example.gov.uk"
     ctx2 = browser.new_context()
     blocked_page = ctx2.new_page()
     login_to_iam(blocked_page, blocked_email)

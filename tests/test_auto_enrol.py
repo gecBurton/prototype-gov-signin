@@ -8,6 +8,14 @@ from tests.conftest import login_code
 User = get_user_model()
 
 
+@pytest.fixture(autouse=True)
+def allow_enrol_domains(make_team):
+    # Signing in now requires the email domain to be allow-listed by some team
+    # (see users.domains.is_signin_domain_allowed); permit the domains these
+    # auto-enrol tests use.
+    make_team("Auto-enrol tests", domains=["example.com", "alpha.com", "beta.org"])
+
+
 @pytest.fixture
 def anon_client(db):
     return Client()
