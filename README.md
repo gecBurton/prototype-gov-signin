@@ -25,7 +25,7 @@ user visits /o/teams/
   → authenticated, returned to original destination
 ```
 
-**Auto-enrolment.** On a fresh database no accounts exist. Rather than requiring a separate sign-up step, the service automatically creates an account the first time an email address is submitted. This is implemented in `iam/users/forms.py` via a custom `RequestLoginCodeForm` subclass registered under `ACCOUNT_FORMS` in settings. The created account has no usable password and a verified email address.
+**Auto-enrolment.** On a fresh database no accounts exist. Rather than requiring a separate sign-up step, the service automatically creates an account the first time an email address is submitted (provided that address is permitted to sign in — see [Who can sign in](#who-can-sign-in)). This is implemented in `iam/users/forms.py` via a custom `RequestLoginCodeForm` subclass registered under `ACCOUNT_FORMS` in settings. The created account has no usable password and a verified email address.
 
 **No usernames.** The custom `User` model has no username field; the email address is the identifier (`USERNAME_FIELD = "email"`). allauth is configured accordingly with `ACCOUNT_USER_MODEL_USERNAME_FIELD = None`.
 
@@ -77,6 +77,8 @@ DOT exposes the standard OIDC endpoints:
 **Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured allows **no** users (fail closed) — every domain you want to permit must be added explicitly, so access is never opened to everyone by accident. The custom `AuthorizationView` in `iam/users/views.py` intercepts the authorize endpoint and returns 403 if the authenticated user's email domain is not allowed (an application can still list individual `additional_emails` that bypass the domain check). This check runs on both GET (consent screen) and POST (form submission).
 
 Note that the check applies **only at authorization time**: removing a domain does not revoke access or refresh tokens that were already issued, and relying parties keep their own sessions. A user who loses access stays signed in to downstream applications until their tokens expire.
+
+This per-application check is distinct from the global sign-in gate that decides whether a user can authenticate to *this* service at all (admins, `.gov.uk`, or any team's allowed domains) — see [Who can sign in](#who-can-sign-in).
 
 **Relevant settings:**
 
@@ -130,6 +132,35 @@ The `SECRET_KEY` environment variable is always required — there is no fallbac
 Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` is set, codes are sent via GOV.UK Notify; otherwise if `EMAIL_HOST` is set, plain SMTP is used (docker compose points this at Mailpit); otherwise emails are printed to the console.
 
 **Admin access** is config-driven via `ADMIN_USERS` — a comma-separated, case-insensitive list of emails (e.g. `ADMIN_USERS=alice@cabinetoffice.gov.uk,bob@cabinetoffice.gov.uk`). On each login, listed users are granted Django admin access (staff + superuser) and anyone no longer listed is demoted, so the env var is the single source of truth. Admins sign in to `/admin/` through the normal allauth flow (email code or Google); there is no admin password. Leaving `ADMIN_USERS` unset means the mechanism is inactive and existing flags are left untouched.
+
+## Initial setup
+
+A freshly deployed instance starts empty — no users, teams, or allowed domains. Bringing it up to a working state:
+
+1. **Set the required configuration** (see [Configuration](#configuration)): `SECRET_KEY`, `ALLOWED_HOSTS`, the OIDC signing key, the database, an email backend, and — important for bootstrapping — `ADMIN_USERS`.
+
+2. **Run migrations.** The deploy entry points do this for you (the `Procfile` release phase; the container/compose start commands). Manually it is `cd iam && python manage.py migrate`.
+
+3. **Sign in as the first admin.** Who may sign in at all is gated (see [Who can sign in](#who-can-sign-in) below), so a brand-new instance with no domains configured would otherwise have no way in. Two things open the door: any address listed in `ADMIN_USERS`, and any `.gov.uk` address. Go to `/accounts/login/` and complete the email-code flow; listed admins are granted Django admin access on login.
+
+4. **Create the first team and its allowed domains.** There is no team-creation page in the app UI, so do this once in Django admin at `/admin/`:
+   - add a **Team**;
+   - add one or more **Allowed email domains** to it (e.g. `cabinetoffice.gov.uk`);
+   - add **Memberships** for the people who will manage it.
+
+   From then on, team members manage members, domains, and applications themselves under `/o/teams/`.
+
+5. **Register applications.** A team member opens `/o/teams/`, selects the team, and registers an application to obtain its client ID and secret. Configure the relying party with those credentials and the OIDC endpoints listed above.
+
+### Who can sign in
+
+Signing in to the service at all is gated by a global allow-list, applied to both the email-code and Google flows before any account is created. An address is admitted if **any** of:
+
+- it is listed in `ADMIN_USERS`;
+- it is a `.gov.uk` address (matched on label boundaries, so `notgov.uk` does **not** qualify);
+- its domain is allowed by **some** team (the union of every team's allowed domains).
+
+Otherwise it is refused. The admin and `.gov.uk` allowances are the bootstrap escape hatches: on a fresh instance with no team domains yet, they are the only way in (without them, no one could sign in to configure the first team). This global gate is coarser than, and sits in front of, the per-application [domain restriction](#django-oauth-toolkit--how-other-services-authenticate-their-users) — passing it lets you hold an account here; each application still checks its own team's domains at authorize time.
 
 ## Running tests
 
