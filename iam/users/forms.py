@@ -96,7 +96,7 @@ class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
             # Applies to returning users too — this gates signing in, not just
             # first enrolment.
             if not is_signin_domain_allowed(email):
-                raise ValidationError("That email domain is not allowed to sign in.")
+                raise ValidationError("Your email is not allowed to sign in.")
             user, created = User.objects.get_or_create(email=email)
             if created:
                 user.set_unusable_password()
