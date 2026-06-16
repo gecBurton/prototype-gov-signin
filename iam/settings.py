@@ -189,6 +189,14 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*"]
 ACCOUNT_LOGIN_BY_CODE_ENABLED = True
+# Pin the login-code security envelope explicitly rather than inheriting
+# allauth's defaults, so an allauth upgrade can't silently widen it. These
+# values match allauth's current defaults but are set deliberately as policy: an
+# emailed code is valid for 3 minutes and may be entered at most 3 times before
+# it is voided. (Throttling of code *requests* is separate — ACCOUNT_RATE_LIMITS
+# below; this bounds use of a code once issued.)
+ACCOUNT_LOGIN_BY_CODE_TIMEOUT = 3 * 60  # seconds the emailed code stays valid
+ACCOUNT_LOGIN_BY_CODE_MAX_ATTEMPTS = 3  # wrong entries before the code is voided
 ACCOUNT_FORMS = {"request_login_code": "users.forms.AutoEnrollRequestLoginCodeForm"}
 # An authenticated session must never be backed by an unverified email: every
 # OIDC token we mint asserts the user's email, so a flow that logs someone in
