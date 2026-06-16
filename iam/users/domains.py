@@ -2,11 +2,6 @@ from django.conf import settings
 
 from users.models import AllowedEmailDomain
 
-# Domains always permitted to sign in, regardless of team configuration: the
-# whole UK central-government estate. Suffix-matched on label boundaries (see
-# email_domain_suffixes), so this admits x.gov.uk but never evilgov.uk.
-ALWAYS_ALLOWED_DOMAINS = {"gov.uk"}
-
 
 def email_domain_suffixes(email: str) -> set[str]:
     """The label-boundary suffixes of an email's domain.
@@ -42,8 +37,9 @@ def is_signin_domain_allowed(email: str) -> bool:
     if admin_users and email in admin_users:
         return True
     suffixes = email_domain_suffixes(email)
-    # Always-allowed government domains.
-    if suffixes & ALWAYS_ALLOWED_DOMAINS:
+    # Any .gov.uk address is always allowed (label-boundary matched, so
+    # notgov.uk does not qualify).
+    if "gov.uk" in suffixes:
         return True
     # Allowed by some team.
     return AllowedEmailDomain.objects.filter(domain__in=suffixes).exists()
