@@ -18,9 +18,9 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
     """
 
     def pre_social_login(self, request, sociallogin):
-        email = (sociallogin.user.email or "").lower()
-        if not email:
-            email = (sociallogin.account.extra_data.get("email") or "").lower()
+        email = (
+            sociallogin.user.email or sociallogin.account.extra_data.get("email") or ""
+        )
         if not is_signin_domain_allowed(email):
             messages.error(request, "That email domain is not allowed to sign in.")
             raise ImmediateHttpResponse(redirect("account_login"))

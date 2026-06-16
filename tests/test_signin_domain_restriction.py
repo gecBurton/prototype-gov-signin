@@ -18,7 +18,6 @@ from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import Client, RequestFactory
-
 from users.domains import is_signin_domain_allowed
 from users.models import AllowedEmailDomain
 
