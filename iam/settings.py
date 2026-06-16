@@ -75,6 +75,9 @@ INSTALLED_APPS = [
 SITE_ID = 1
 
 MIDDLEWARE = [
+    # First so the load-balancer health check is answered before host/TLS
+    # validation (which would otherwise 400/301 it). See healthcheck.py.
+    "healthcheck.HealthCheckMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
