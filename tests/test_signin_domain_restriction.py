@@ -28,8 +28,9 @@ GOOGLE_UID = "115147437611111111111"
 
 @pytest.fixture
 def team_with_domain(make_team):
-    """A team allowing cabinetoffice.gov.uk, so the global union is non-empty."""
-    return make_team("Gov", domains=["cabinetoffice.gov.uk"])
+    """A team allowing a non-government domain, so the per-team union path can be
+    tested distinctly from the blanket .gov.uk rule."""
+    return make_team("Vendor", domains=["contractor.example"])
 
 
 # --- the matcher -------------------------------------------------------------
@@ -38,22 +39,39 @@ def team_with_domain(make_team):
 @pytest.mark.parametrize(
     "email, allowed",
     [
+        # Blanket .gov.uk rule (no team needed)
         ("alice@cabinetoffice.gov.uk", True),
-        ("bob@digital.cabinetoffice.gov.uk", True),  # subdomain admitted
-        ("eve@evilcabinetoffice.gov.uk", False),  # not a label-boundary suffix
+        ("bob@digital.service.gov.uk", True),
+        ("clerk@gov.uk", True),
+        # Look-alikes that are not .gov.uk on a label boundary
+        ("eve@notgov.uk", False),
         ("mallory@gmail.com", False),
+        # Admitted via a team's allowed domain
+        ("dev@contractor.example", True),
     ],
 )
 def test_is_signin_domain_allowed(team_with_domain, email, allowed):
     assert is_signin_domain_allowed(email) is allowed
 
 
-def test_empty_union_admits_everyone(db):
-    # Bootstrap safeguard: with no team domains configured anywhere, anyone may
-    # sign in. Delete within this (rolled-back) test so session-scoped fixtures
-    # that seeded a domain elsewhere don't make the union non-empty here.
+def test_admins_always_allowed(db, settings):
+    # Escape hatch: an admin on an outside domain can still sign in — this is
+    # what lets the first admin bootstrap the allow-list on a fresh instance.
+    settings.ADMIN_USERS = ["boss@outside.example"]
+    assert is_signin_domain_allowed("boss@outside.example") is True
+    assert is_signin_domain_allowed("BOSS@OUTSIDE.EXAMPLE") is True  # case-insensitive
+    # A non-admin on the same outside domain is still refused.
+    assert is_signin_domain_allowed("other@outside.example") is False
+
+
+def test_fail_closed_when_no_team_domains(db, settings):
+    # No empty-union "allow all": with no team domains and not gov.uk/admin, an
+    # address is refused. Bootstrap is via the admin/.gov.uk escapes instead.
+    # Delete within this (rolled-back) test so session-scoped fixtures that
+    # seeded a domain elsewhere don't interfere.
     AllowedEmailDomain.objects.all().delete()
-    assert is_signin_domain_allowed("anyone@anywhere.example") is True
+    settings.ADMIN_USERS = None
+    assert is_signin_domain_allowed("anyone@anywhere.example") is False
 
 
 # --- login-by-code path ------------------------------------------------------

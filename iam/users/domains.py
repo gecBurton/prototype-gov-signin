@@ -1,4 +1,11 @@
+from django.conf import settings
+
 from users.models import AllowedEmailDomain
+
+# Domains always permitted to sign in, regardless of team configuration: the
+# whole UK central-government estate. Suffix-matched on label boundaries (see
+# email_domain_suffixes), so this admits x.gov.uk but never evilgov.uk.
+ALWAYS_ALLOWED_DOMAINS = {"gov.uk"}
 
 
 def email_domain_suffixes(email: str) -> set[str]:
@@ -16,20 +23,27 @@ def email_domain_suffixes(email: str) -> set[str]:
 def is_signin_domain_allowed(email: str) -> bool:
     """Whether an address may sign in to this service at all.
 
-    The global allow-list is the union of every team's allowed email domains:
-    an address may sign in if *some* team would admit its domain. This gates
-    account enrolment and every sign-in, ahead of the finer per-application
-    check at the authorize endpoint (see views._is_domain_allowed).
+    Admitted if any of:
+      * it is an admin (ADMIN_USERS) — the escape hatch that lets the first
+        admin sign in to configure the allow-list on a fresh instance, where no
+        team domains exist yet;
+      * its domain is an always-allowed government domain (.gov.uk);
+      * some team's allowed email domains admit it (the union across all teams).
 
-    Bootstrap safeguard: when no team has configured any domain the union is
-    empty and all addresses are admitted — otherwise a fresh instance could
-    never sign anyone in to create the first team and its domains. Once any
-    domain exists anywhere, the list is authoritative and other domains are
-    refused.
+    Otherwise refused — the gate is fail-closed. This is the global check,
+    applied ahead of the finer per-application check at the authorize endpoint
+    (see views._is_domain_allowed).
     """
     if not email:
         return False
-    suffixes = email_domain_suffixes(email)
-    if AllowedEmailDomain.objects.filter(domain__in=suffixes).exists():
+    email = email.lower()
+    # Admin escape hatch (bootstrap): admins are always admitted.
+    admin_users = settings.ADMIN_USERS
+    if admin_users and email in admin_users:
         return True
-    return not AllowedEmailDomain.objects.exists()
+    suffixes = email_domain_suffixes(email)
+    # Always-allowed government domains.
+    if suffixes & ALWAYS_ALLOWED_DOMAINS:
+        return True
+    # Allowed by some team.
+    return AllowedEmailDomain.objects.filter(domain__in=suffixes).exists()
