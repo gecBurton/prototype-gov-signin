@@ -268,3 +268,97 @@ def test_remove_domain_invalid_pk(client, owner, team):
         ).status_code
         == 404
     )
+
+
+# ---------------------------------------------------------------------------
+# Removing a domain or member revokes Hydra consent for affected users, so an
+# already-issued token can't keep working past the access change (see
+# users.hydra.revoke_team_consent — verified directly against a live Hydra
+# instance that this actually invalidates issued tokens).
+# ---------------------------------------------------------------------------
+
+
+def test_remove_domain_revokes_consent_for_matching_users(
+    client, fake_hydra, owner, team, app
+):
+    allowed_domain = team.allowed_email_domains.create(domain="allowed.com")
+    matching_user = User.objects.create_user(email="user@allowed.com")
+    client.force_login(owner)
+
+    client.post(f"/o/teams/{team.pk}/domains/{allowed_domain.pk}/remove/")
+
+    assert (str(matching_user.pk), app.client_id) in fake_hydra.revoked_consents
+
+
+def test_remove_domain_does_not_revoke_unrelated_users(
+    client, fake_hydra, owner, team, app
+):
+    allowed_domain = team.allowed_email_domains.create(domain="allowed.com")
+    unrelated_user = User.objects.create_user(email="user@other.com")
+    client.force_login(owner)
+
+    client.post(f"/o/teams/{team.pk}/domains/{allowed_domain.pk}/remove/")
+
+    assert (str(unrelated_user.pk), app.client_id) not in fake_hydra.revoked_consents
+
+
+def test_remove_domain_does_not_revoke_when_another_domain_still_matches(
+    client, fake_hydra, owner, team, app
+):
+    # user@sub.allowed.com matches both "allowed.com" and "sub.allowed.com" —
+    # removing just one of the two overlapping domains should not revoke
+    # access the other domain still grants.
+    team.allowed_email_domains.create(domain="sub.allowed.com")
+    removed_domain = team.allowed_email_domains.create(domain="allowed.com")
+    still_covered_user = User.objects.create_user(email="user@sub.allowed.com")
+    client.force_login(owner)
+
+    client.post(f"/o/teams/{team.pk}/domains/{removed_domain.pk}/remove/")
+
+    assert (
+        str(still_covered_user.pk),
+        app.client_id,
+    ) not in fake_hydra.revoked_consents
+
+
+def test_remove_member_revokes_consent_for_teams_applications(
+    client, fake_hydra, owner, stranger, team, app
+):
+    stranger.teams.add(team)
+    client.force_login(owner)
+
+    client.post(f"/o/teams/{team.pk}/members/{stranger.pk}/remove/")
+
+    assert (str(stranger.pk), app.client_id) in fake_hydra.revoked_consents
+
+
+def test_remove_member_does_not_revoke_other_teams_applications(
+    client, fake_hydra, owner, stranger, team, other_team_app
+):
+    stranger.teams.add(team)
+    client.force_login(owner)
+
+    client.post(f"/o/teams/{team.pk}/members/{stranger.pk}/remove/")
+
+    assert (
+        str(stranger.pk),
+        other_team_app.client_id,
+    ) not in fake_hydra.revoked_consents
+
+
+def test_remove_member_revokes_consent_for_soft_deleted_applications_too(
+    client, fake_hydra, owner, stranger, team, app
+):
+    """A token issued before an application was soft-deleted is still live
+    until it expires, so revocation must still reach it — even though the
+    application itself now 404s for new sign-ins (see revoke_team_consent).
+    """
+    from users import hydra
+
+    hydra.soft_delete(app.client_id)
+    stranger.teams.add(team)
+    client.force_login(owner)
+
+    client.post(f"/o/teams/{team.pk}/members/{stranger.pk}/remove/")
+
+    assert (str(stranger.pk), app.client_id) in fake_hydra.revoked_consents

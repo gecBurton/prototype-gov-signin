@@ -24,10 +24,6 @@
     <dt class="govuk-summary-list__key">Client ID</dt>
     <dd class="govuk-summary-list__value"><code id="client-id">{{ application.client_id }}</code></dd>
   </div>
-  <div class="govuk-summary-list__row">
-    <dt class="govuk-summary-list__key">Client type</dt>
-    <dd class="govuk-summary-list__value">{{ application.client_type }}</dd>
-  </div>
   {% if application.description %}
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Description</dt>
@@ -43,7 +39,7 @@
   {% if application.redirect_uris %}
   <div class="govuk-summary-list__row">
     <dt class="govuk-summary-list__key">Redirect URIs</dt>
-    <dd class="govuk-summary-list__value">{{ application.redirect_uris }}</dd>
+    <dd class="govuk-summary-list__value">{{ application.redirect_uris|join:", " }}</dd>
   </div>
   {% endif %}
   <div class="govuk-summary-list__row">

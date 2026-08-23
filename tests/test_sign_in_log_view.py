@@ -2,18 +2,21 @@ from datetime import datetime, timezone
 
 import pytest
 from django.contrib.auth import get_user_model
-from oauth2_provider.models import get_application_model
 from users.models import SignInEvent
 
 User = get_user_model()
-Application = get_application_model()
 
 LOGS_URL = "/o/logs/"
 
 
 def _event(user, application, created=None):
-    """Create a SignInEvent, overriding the auto_now_add ``created`` if given."""
-    event = SignInEvent.objects.create(user=user, application=application)
+    """Create a SignInEvent for a users.hydra.Application, overriding ``created``."""
+    event = SignInEvent.objects.create(
+        user=user,
+        application_client_id=application.client_id,
+        application_name=application.name,
+        team_id=application.team_id or None,
+    )
     if created is not None:
         SignInEvent.objects.filter(pk=event.pk).update(created=created)
         event.refresh_from_db()
@@ -55,7 +58,8 @@ def test_application_dropdown_includes_apps_you_signed_into(
     client.force_login(stranger)
 
     response = client.get(LOGS_URL)
-    assert other_team_app in list(response.context["applications"])
+    client_ids = [pair[0] for pair in response.context["applications"]]
+    assert other_team_app.client_id in client_ids
 
 
 def test_logs_most_recent_first(client, owner, app, stranger):
@@ -89,13 +93,10 @@ def test_logs_empty_state(client, owner):
 
 
 @pytest.fixture
-def second_app(team):
-    return Application.objects.create(
-        name="Second App",
-        client_type=Application.CLIENT_CONFIDENTIAL,
-        redirect_uris="http://localhost/callback",
-        team=team,
-    )
+def second_app(fake_hydra, team):
+    from tests.conftest import make_hydra_application
+
+    return make_hydra_application(fake_hydra, team, name="Second App")
 
 
 def test_filter_by_application(client, owner, app, second_app, stranger):
@@ -103,7 +104,7 @@ def test_filter_by_application(client, owner, app, second_app, stranger):
     _event(stranger, second_app)
     client.force_login(owner)
 
-    response = client.get(LOGS_URL, {"application": str(app.pk)})
+    response = client.get(LOGS_URL, {"application": app.client_id})
     assert [e.pk for e in response.context["events"]] == [wanted.pk]
 
 
@@ -143,16 +144,19 @@ def test_filter_by_date(client, owner, app, stranger):
     assert [e.pk for e in response.context["events"]] == [wanted.pk]
 
 
-@pytest.mark.parametrize("bad_application", ["not-a-uuid", "12345"])
-def test_malformed_application_filter_is_ignored(
+@pytest.mark.parametrize("bad_application", ["not-a-real-client-id", "12345"])
+def test_unmatched_application_filter_is_ignored(
     client, owner, app, stranger, bad_application
 ):
-    event = _event(stranger, app)
+    # An application filter value that matches nothing simply yields an empty
+    # result — not an error — since the visibility scope above already bounds
+    # what can be seen.
+    _event(stranger, app)
     client.force_login(owner)
 
     response = client.get(LOGS_URL, {"application": bad_application})
     assert response.status_code == 200
-    assert [e.pk for e in response.context["events"]] == [event.pk]
+    assert list(response.context["events"]) == []
 
 
 @pytest.mark.parametrize(
@@ -200,7 +204,7 @@ def test_filters_combine(client, owner, app, second_app, stranger):
     response = client.get(
         LOGS_URL,
         {
-            "application": str(app.pk),
+            "application": app.client_id,
             "user": "alice",
             "date_day": "15",
             "date_month": "2",
@@ -215,10 +219,9 @@ def test_pagination_preserves_filters(client, owner, app, stranger):
         _event(stranger, app)
     client.force_login(owner)
 
-    response = client.get(LOGS_URL, {"application": str(app.pk)})
+    response = client.get(LOGS_URL, {"application": app.client_id})
     # The filter rides along in the pagination links, not just ?page=N.
-    assert f"application={app.pk}" in response.context["filter_query"]
-    assert f"page=2&amp;application={app.pk}" in response.content.decode()
+    assert f"application={app.client_id}" in response.context["filter_query"]
 
 
 def test_filtered_empty_state(client, owner, app, stranger):

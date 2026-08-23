@@ -1,19 +1,17 @@
 import uuid
-from urllib.parse import urlparse
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.contrib.postgres.fields import ArrayField
-from django.core.exceptions import ValidationError
 from django.db import models
-from oauth2_provider.models import AbstractApplication
 
-# http is only safe for loopback redirect URIs (a developer's own machine, per
-# RFC 8252); anywhere else a cleartext redirect can leak the authorization code.
-_LOOPBACK_REDIRECT_HOSTS = {"localhost", "127.0.0.1", "::1"}
+from users import hydra
 
 
 class Team(models.Model):
-    """A group of users who jointly own OAuth applications."""
+    """A group of users who jointly own OAuth applications.
+
+    Applications aren't a Django model: each is a Hydra client owned by
+    this team's id. See users.hydra.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
@@ -21,7 +19,7 @@ class Team(models.Model):
     @property
     def active_applications(self):
         """The team's applications that have not been soft-deleted."""
-        return self.applications.filter(is_active=True)
+        return hydra.list_team_applications(self.id)
 
     def __str__(self):
         return self.name
@@ -36,9 +34,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("The email must be set")
         user = self.model(email=self.normalize_email(email), **extra_fields)
-        # This service has no passwords: every account authenticates via email
-        # login-code or Google. Any password argument (e.g. from
-        # createsuperuser) is intentionally ignored.
+        # No passwords: every account authenticates via email code or Google.
         user.set_unusable_password()
         user.save(using=self._db)
         return user
@@ -117,149 +113,23 @@ class AllowedEmailDomain(models.Model):
         return self.domain
 
 
-class Application(AbstractApplication):
-    """An OAuth2/OIDC client, owned and managed by a team."""
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    description = models.TextField(
-        blank=True,
-        help_text="What this application is for. Shown to the team, not to end users.",
-    )
-    main_app_url = models.URLField(
-        blank=True,
-        help_text="The application's home page, e.g. https://my-service.gov.uk.",
-    )
-    # Individual addresses that may sign in to this application even when their
-    # domain is not in the team's allowed domains — e.g. VIPs or pentesters on a
-    # personal address. Whitespace-separated; matched case-insensitively.
-    additional_emails = ArrayField(
-        models.EmailField(),
-        blank=True,
-        default=list,
-        help_text=(
-            "Extra email addresses allowed to sign in to this application, "
-            "space separated, regardless of the team's allowed domains."
-        ),
-    )
-    # Applications are soft-deleted: "removing" one sets is_active=False so its
-    # credentials and sign-in history are preserved. Hidden apps are excluded
-    # from the management UI and refused at the authorize endpoint.
-    is_active = models.BooleanField(default=True)
-    # Whether this application appears in the signed-in Applications directory
-    # (see users.views.ApplicationDirectory). Listed by default; a team opts an
-    # app out by unticking it — e.g. while it is in development, or if it is
-    # sensitive. Independent of is_active: opting out hides the app from the
-    # directory but leaves it fully usable for sign-in.
-    listed = models.BooleanField(
-        default=True,
-        help_text=(
-            "Show this application in the directory that all signed-in users "
-            "can browse. Untick to hide it — for example while it is still in "
-            "development, or if it is sensitive."
-        ),
-    )
-    # Every application belongs to a team; there are no team-less apps. PROTECT
-    # means a team with applications cannot be deleted until those apps are
-    # moved or removed first, so domain restrictions can never be silently lost.
-    team = models.ForeignKey(
-        Team,
-        on_delete=models.PROTECT,
-        related_name="applications",
-    )
-    # Only the authorization-code grant is supported: implicit, password and
-    # hybrid are deprecated (removed in OAuth 2.1). If we ever need
-    # machine-to-machine clients, client-credentials may have to be re-allowed.
-    authorization_grant_type = models.CharField(
-        max_length=44,
-        choices=[(AbstractApplication.GRANT_AUTHORIZATION_CODE, "Authorization code")],
-        default=AbstractApplication.GRANT_AUTHORIZATION_CODE,
-    )
-    algorithm = models.CharField(
-        max_length=5,
-        choices=[(AbstractApplication.RS256_ALGORITHM, "RSA with SHA-2 256")],
-        default=AbstractApplication.RS256_ALGORITHM,
-    )
-    # Client secrets are always stored hashed; a lost secret is replaced,
-    # never recovered.
-    hash_client_secret = models.BooleanField(default=True, editable=False)
-
-    @property
-    def additional_email_list(self):
-        """The additional-emails allow-list as normalised lowercase addresses.
-
-        save() already lowercases what is stored; this also normalises an
-        unsaved instance, so the authorize-time membership check is reliable
-        either way.
-        """
-        return [email.lower() for email in self.additional_emails]
-
-    def save(self, *args, **kwargs):
-        # Normalise the allow-list (lowercased, blanks dropped) so the exact
-        # array-membership lookups in the sign-in gate (users.domains) and the
-        # authorize check stay reliable however the value was entered.
-        self.additional_emails = [
-            email.strip().lower() for email in self.additional_emails if email.strip()
-        ]
-        super().save(*args, **kwargs)
-
-    def clean(self):
-        super().clean()
-        # Require https for redirect URIs (and post-logout redirect URIs),
-        # allowing http only for loopback hosts. The parent permits http
-        # anywhere; tighten it so an authorization code — or a logout redirect —
-        # can never be sent to a cleartext, non-local endpoint. Enforced on the
-        # registration/update form (which validates); ORM-seeded apps such as
-        # the demo bypass this, and the demo's http://localhost is loopback.
-        for field in ("redirect_uris", "post_logout_redirect_uris"):
-            for uri in getattr(self, field).split():
-                parsed = urlparse(uri)
-                if (
-                    parsed.scheme == "http"
-                    and parsed.hostname not in _LOOPBACK_REDIRECT_HOSTS
-                ):
-                    raise ValidationError(
-                        {
-                            field: (
-                                f"{uri} must use https. http is only allowed for "
-                                "loopback addresses (localhost) during development."
-                            )
-                        }
-                    )
-
-    class Meta(AbstractApplication.Meta):
-        swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(
-                    authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE
-                ),
-                name="application_grant_type_authorization_code",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(algorithm=AbstractApplication.RS256_ALGORITHM),
-                name="application_algorithm_rs256",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(hash_client_secret=True),
-                name="application_hash_client_secret",
-            ),
-        ]
-
-
 class SignInEvent(models.Model):
     """One row per successful sign-in: a user authorising an application.
 
-    Written from the authorize endpoint whenever a code is issued (including
-    the skip-authorization auto-approve path). Applications are soft-deleted, so
-    the foreign keys stay valid and the log keeps its history.
+    Applications live in Hydra, not this database, so the application is
+    referenced by its Hydra client_id and a denormalised name/team snapshot
+    rather than a foreign key — history survives even if the client is
+    later deleted from Hydra.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         "users.User", on_delete=models.CASCADE, related_name="sign_in_events"
     )
-    application = models.ForeignKey(
-        "users.Application", on_delete=models.CASCADE, related_name="sign_in_events"
+    application_client_id = models.CharField(max_length=255, db_index=True)
+    application_name = models.CharField(max_length=255)
+    team = models.ForeignKey(
+        Team, on_delete=models.SET_NULL, null=True, related_name="sign_in_events"
     )
     created = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -267,4 +137,4 @@ class SignInEvent(models.Model):
         ordering = ["-created"]
 
     def __str__(self):
-        return f"{self.user} → {self.application} at {self.created:%Y-%m-%d %H:%M}"
+        return f"{self.user} → {self.application_name} at {self.created:%Y-%m-%d %H:%M}"

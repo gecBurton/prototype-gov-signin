@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 GRAFANA = "http://localhost:3000"
 IAM = "http://localhost:8000"
+HYDRA_PUBLIC = "http://localhost:4444"
 MAILPIT_API = "http://localhost:8025/api/v1"
 
 DEMO_EMAIL = "demo@example.com"

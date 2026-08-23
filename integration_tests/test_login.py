@@ -16,7 +16,8 @@ def test_grafana_login_via_iam(page: Page):
     page.goto(f"{GRAFANA}/login")
     page.get_by_text("Sign in with IAM").click()
 
-    # 2. Grafana → IAM /o/authorize/ → IAM /accounts/login/
+    # 2. Grafana → Hydra (via Grafana's generic OAuth config) → Hydra's
+    #    login-challenge → IAM /o/login/ → IAM /accounts/login/
     page.wait_for_url(f"{IAM}/accounts/login/**")
 
     # 3. Click the email-code link — this navigates to /accounts/login/code/
@@ -34,7 +35,9 @@ def test_grafana_login_via_iam(page: Page):
     page.get_by_placeholder("Code").fill(code)
     page.get_by_role("button", name="Confirm").click()
 
-    # 6. allauth → /o/authorize/ → Grafana callback → Grafana dashboard
+    # 6. allauth → IAM /o/login/ (accept) → Hydra → IAM /o/consent/ (skipped,
+    #    skip_authorization is set on the demo app) → Grafana callback →
+    #    Grafana dashboard
     page.wait_for_url(f"{GRAFANA}/**", timeout=15_000)
     expect(page).not_to_have_url(f"{GRAFANA}/login")
 

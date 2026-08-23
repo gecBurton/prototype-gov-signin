@@ -2,11 +2,73 @@
 > This private project is just-for-fun, no part of it is used or otherwise endorsed in UK Gov
 
 
-## prototype-gov-signin — Django OIDC Identity Provider
+## prototype-gov-signin — Django + Ory Hydra Identity Provider
 
 A Django service that acts as an OpenID Connect identity provider for internal tools. Teams register their applications here and get a client ID and secret; their applications then authenticate users via the standard OIDC authorization code flow.
 
-Built on two libraries that each own one half of the authentication picture.
+Built on two systems that each own one half of the authentication picture: Django (via django-allauth) handles who a human is, and [Ory Hydra](https://www.ory.sh/hydra/) — a dedicated OAuth2/OIDC server — handles the protocol: token issuance, signing keys, discovery, and session lifecycle. This app never signs a token itself; it only ever tells Hydra, via its admin API, whether a given sign-in should be allowed to proceed.
+
+---
+
+## Architecture: Django vs Hydra
+
+Neither side trusts the other's data model. Hydra knows nothing about Teams, email domains, or this project's business rules. Django knows nothing about token signing, client secrets, or OAuth2 protocol correctness. The split:
+
+| | Django (`iam`) | Ory Hydra |
+|---|---|---|
+| **Owns** | Authentication (who is this person), authorization (may they proceed), business data (Teams, domains, application metadata), the audit log | Token issuance, signing keys, the OAuth2/OIDC endpoints, the client registry, login/consent/logout session state |
+| **Has no idea about** | How to sign a token, or a client secret's lifecycle | Users, teams, domains, or any of this project's rules |
+| **Talks to the relying party** | Never — Grafana never sends a request to Django | Directly — `/oauth2/auth`, `/oauth2/token`, `/userinfo` |
+| **Talks to the other side via** | Hydra's **admin API** (`HYDRA_ADMIN_URL`) — to accept/reject a login or consent, and to manage clients | Browser **redirects** carrying a `login_challenge`/`consent_challenge`/`logout_challenge` — never calls Django's admin API |
+
+The admin API is the trust boundary: whoever can reach `HYDRA_ADMIN_URL` can accept a login as any user, so it is never exposed outside the deployment network (see `docker-compose.yml`).
+
+### Sequence: a user signing in to Grafana
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Grafana as Grafana<br/>(relying party)
+    participant Hydra as Ory Hydra<br/>(protocol engine)
+    participant Django as Django (iam)<br/>(decision maker)
+    participant allauth as django-allauth<br/>(login-by-code / Google)
+
+    User->>Grafana: Visit Grafana
+    Grafana->>Hydra: Redirect to /oauth2/auth?client_id=grafana&...
+    Note over Hydra: Hydra has no session for this user.<br/>It has no idea who they are.
+    Hydra->>Django: Redirect to /o/login/?login_challenge=X
+    Django->>Hydra: GET admin API: fetch login request X<br/>(includes the client's metadata)
+
+    alt user not yet authenticated
+        Django->>allauth: Redirect to /accounts/login/?next=...
+        User->>allauth: Complete email-code or Google login
+        allauth->>Django: Authenticated, redirected back
+    end
+
+    Note over Django: Runs the domain check<br/>(is_signin_domain_allowed,<br/>_is_domain_allowed) —<br/>Hydra has no concept of this.
+    Django->>Hydra: PUT admin API: accept login request X
+    Hydra->>Django: Redirect to /o/consent/?consent_challenge=Y
+
+    alt application requires explicit consent
+        Django->>User: Show consent screen
+        User->>Django: Approve
+    end
+
+    Django->>Hydra: PUT admin API: accept consent Y<br/>(asserts email, email_verified claims)
+    Django->>Django: Record SignInEvent (audit log)
+    Hydra->>Grafana: Redirect with authorization code
+    Grafana->>Hydra: POST /oauth2/token (exchange code)
+    Hydra->>Grafana: Access token + signed ID token
+    Grafana->>Hydra: GET /userinfo (bearer token)
+    Hydra->>Grafana: User claims
+    Grafana->>User: Signed in
+```
+
+Three things worth noting about this flow:
+
+- **Django never sees a token, and Hydra never sees a Team.** The only data that crosses the boundary is the challenge IDs (opaque, short-lived) and the claims Django hands Hydra to put in the ID token (`email`, `email_verified`, `sub`).
+- **The domain check runs on every login-challenge**, not just once — so a user who's authenticated to Django (has a session) but whose team's allowed domains have since changed is re-checked each time they try to reach an application, at step "Runs the domain check" above.
+- **Hydra's defaults are slightly broader than what this deployment supports** (it will accept a request with no PKCE challenge, or the weak `plain` method). Rather than Django re-checking this, Hydra itself is configured to enforce it (`OAUTH2_PKCE_ENFORCED=true`, see `docker-compose.yml`) — verified directly against a running instance: with this set, Hydra rejects both a missing `code_challenge` and `code_challenge_method=plain` at token exchange with its own error. No Django code needs to duplicate this.
 
 ---
 
@@ -45,58 +107,55 @@ In docker compose, "Google" is actually [Dex](https://dexidp.io/) (`integration_
 
 ---
 
-## django-oauth-toolkit — how *other services* authenticate their users
+## Ory Hydra — how *other services* authenticate their users
 
-[django-oauth-toolkit](https://github.com/jazzband/django-oauth-toolkit) (DOT) handles the outbound side: making this Django app an OAuth 2.0 / OIDC authorization server that other applications can trust.
+[Ory Hydra](https://www.ory.sh/hydra/) handles the outbound side: making this identity provider an OpenID Certified OAuth 2.0 / OIDC authorization server that other applications can trust. Hydra owns token issuance, signing keys, session lifecycle, and the standard OIDC endpoints; this Django app is not the token issuer — it is the thing Hydra delegates every login and consent decision to.
 
-When a service like Grafana needs to know who a user is, it redirects them here. DOT issues a short-lived authorization code, which the service exchanges for an access token and ID token. The ID token contains the user's identity (sub, email, etc.) signed with this server's private RSA key.
+When a service like Grafana needs to know who a user is, it redirects them to Hydra's `/oauth2/auth` endpoint. Hydra has no user database of its own, so it redirects the browser onward to this app's **login-challenge** endpoint, carrying a `login_challenge` id. This app decides whether the user may proceed (running exactly the same domain checks described below), then calls Hydra's admin API to accept or reject that decision. Hydra then repeats the pattern for **consent**, and finally issues the authorization code, tokens, and ID token itself.
 
 ```
 user visits Grafana
-  → Grafana redirects to /o/authorize/?client_id=grafana&...
-  → user authenticates via allauth (above)
-  → user sees consent screen (or auto-approves)
-  → Grafana receives authorization code
-  → Grafana POSTs to /o/token/ to exchange for tokens
-  → Grafana calls /o/userinfo/ to get user claims
+  → Grafana redirects to Hydra's /oauth2/auth?client_id=grafana&...
+  → Hydra has no session for this user, redirects to this app's /o/login/?login_challenge=...
+  → user authenticates via allauth (above), if not already
+  → this app runs the domain check (below) and calls Hydra's admin API to accept/reject the login
+  → Hydra redirects to this app's /o/consent/?consent_challenge=...
+  → this app shows a consent screen (or auto-approves, if skip_authorization is set) and tells Hydra
+  → Hydra issues an authorization code to Grafana
+  → Grafana exchanges the code with Hydra directly (POST Hydra's /oauth2/token)
+  → Grafana calls Hydra's /userinfo directly to get user claims
   → user is logged in to Grafana
 ```
 
-DOT exposes the standard OIDC endpoints:
+Hydra exposes the standard OIDC endpoints directly, and relying parties are configured with those URLs (see `docker-compose.yml`'s Grafana config) rather than via discovery — this app does not proxy or trim Hydra's own discovery document:
 
 | Endpoint | Purpose |
 |---|---|
-| `/o/authorize/` | Authorization endpoint — starts the flow |
-| `/o/token/` | Token endpoint — exchanges code for tokens |
-| `/o/userinfo/` | Returns claims for the bearer token |
-| `/o/.well-known/openid-configuration/` | Discovery document |
-| `/o/jwks/` | Public keys for token verification |
+| `/oauth2/auth` | Authorization endpoint — starts the flow |
+| `/oauth2/token` | Token endpoint — exchanges code for tokens |
+| `/userinfo` | Returns claims for the bearer token |
+| `/.well-known/openid-configuration` | Discovery document |
+| `/.well-known/jwks.json` | Public keys for token verification |
 
-**Teams and application management.** DOT provides base views for registering and managing OAuth clients (applications). This project extends them: applications belong to a `Team` (models in `iam/users/models.py`), and users manage their teams' applications, members, and allowed email domains under `/o/teams/` (views in `iam/users/views.py`). Users and teams are many-to-many via a `Membership` model.
+**PKCE correctness is Hydra's job, not this app's.** `OAUTH2_PKCE_ENFORCED=true` (set on the `hydra` service in `docker-compose.yml`) makes Hydra itself reject any authorization request that omits a `code_challenge`, or that uses the weak `plain` challenge method (which offers no protection against authorization-code interception — the challenge equals the verifier). Verified directly against a running Hydra instance: with this set, both cases are rejected at token exchange with Hydra's own error message, before a token is ever issued. This app used to duplicate that check itself (see git history for the removed `_reject_weak_pkce`/`DiscoveryInfoView`); it no longer needs to.
 
-**Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured allows **no** users (fail closed) — every domain you want to permit must be added explicitly, so access is never opened to everyone by accident. The custom `AuthorizationView` in `iam/users/views.py` intercepts the authorize endpoint and returns 403 if the authenticated user's email domain is not allowed (an application can still list individual `additional_emails` that bypass the domain check). This check runs on both GET (consent screen) and POST (form submission).
+**Teams and application management.** Applications are OAuth2 clients registered in Hydra — there is no local database table for them (see `iam/users/hydra.py`, a thin wrapper around Hydra's admin API). Team ownership is recorded on the Hydra client itself (its `owner` field, set to the team's id); everything else this project layers on top of a bare OAuth2 client — description, main app URL, the `additional_emails` allow-list, the `listed`/`is_active` flags — is stored in Hydra's free-form `metadata` field. Teams manage their applications, members, and allowed email domains under `/o/teams/` (views in `iam/users/views.py`). Users and teams are many-to-many via a `Membership` model.
 
-Note that the check applies **only at authorization time**: removing a domain does not revoke access or refresh tokens that were already issued, and relying parties keep their own sessions. A user who loses access stays signed in to downstream applications until their tokens expire.
+**Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured allows **no** users (fail closed) — every domain you want to permit must be added explicitly, so access is never opened to everyone by accident. `HydraLoginView` in `iam/users/views.py` intercepts Hydra's login-challenge redirect and returns 403 if the authenticated user's email domain is not allowed (an application can still list individual `additional_emails` that bypass the domain check).
+
+Because this app always accepts Hydra's login/consent requests with `remember=False`, Hydra re-issues a fresh login-challenge — re-running the domain check — on *every* authorization request, even within the same browser session (verified directly: the same session gets a new `login_challenge` on a second visit to `/oauth2/auth`, seconds after the first). So a user who loses domain access is blocked the next time any application tries to authorize them.
+
+What that re-check does *not* do on its own is invalidate an access or refresh token already issued before the access change. For that, `TeamDomainRemove` and `TeamMemberRemove` (`iam/users/views.py`) call `hydra.revoke_team_consent`, which revokes the affected user's consent grant for each of the team's applications via Hydra's admin API (`DELETE /admin/oauth2/auth/sessions/consent?subject=...&client=...`) — verified directly against a running Hydra instance that this immediately flips a previously "active" access token to inactive on introspection. Revocation is scoped to the specific team's applications, not the user's access globally, so removing one team's domain (or membership) does not touch a user's unrelated access to other teams' applications.
 
 This per-application check is distinct from the global sign-in gate that decides whether a user can authenticate to *this* service at all (admins, `.gov.uk`, or any team's allowed domains) — see [Who can sign in](#who-can-sign-in).
 
 **Relevant settings:**
 
 ```python
-OAUTH2_PROVIDER_APPLICATION_MODEL = "users.Application"
-OAUTH2_PROVIDER = {
-    "OIDC_ENABLED": True,
-    "OIDC_RSA_PRIVATE_KEY": ...,   # loaded from oidc.key or OIDC_RSA_PRIVATE_KEY env var
-    "OAUTH2_VALIDATOR_CLASS": "validators.OIDCValidator",
-    "SCOPES": {"openid": "...", "profile": "...", "email": "..."},
-}
+HYDRA_ADMIN_URL = "http://hydra:4445"   # never exposed outside the deployment network
 ```
 
-The RSA private key (`oidc.key`) is used to sign ID tokens. Generate one with:
-
-```
-openssl genrsa -out iam/oidc.key 4096
-```
+Hydra manages its own signing keys and database — there is no equivalent of an `oidc.key` file for this app to generate or provide; that entire concern moved to Hydra (see `docker-compose.yml` for how it's configured locally).
 
 ---
 
@@ -104,26 +163,21 @@ openssl genrsa -out iam/oidc.key 4096
 
 Prerequisites: [Docker](https://docs.docker.com/get-docker/) and [uv](https://docs.astral.sh/uv/).
 
-First generate the OIDC signing key (one-off — the file is gitignored, and `docker compose` bind-mounts it into the container):
-
-```
-openssl genrsa -out iam/oidc.key 4096
-```
-
-Then start the stack:
+Start the stack:
 
 ```
 make up
 ```
 
 This starts:
-- **iam** — the Django service on port 8000
-- **db** — Postgres 17
+- **iam** — the Django service on port 8000 (decides logins/consent; never issues tokens itself)
+- **hydra** — the OAuth2/OIDC authorization server on ports 4444 (public) and 4445 (admin)
+- **db** — Postgres 17 (a single server, with separate databases for `iam` and `hydra`)
 - **mailpit** — catches outbound email; web UI at http://localhost:8025
 - **grafana** — a pre-configured demo relying party at http://localhost:3000
 - **dex** — a local OIDC server standing in for Google on port 5556 (see the Google social login section)
 
-On first start, the `iam` service (see `docker-compose.yml`) seeds a demo user and a Grafana OAuth application. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
+On first start, the `iam` service (see `docker-compose.yml`) seeds a demo user and registers a Grafana OAuth client in Hydra. Log in to Grafana with "Sign in with IAM", complete the email code flow in Mailpit, and you will land in Grafana authenticated.
 
 ## Configuration
 
@@ -137,7 +191,7 @@ Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` i
 
 A freshly deployed instance starts empty — no users, teams, or allowed domains. Bringing it up to a working state:
 
-1. **Set the required configuration** (see [Configuration](#configuration)): `SECRET_KEY`, `ALLOWED_HOSTS`, the OIDC signing key, the database, an email backend, and — important for bootstrapping — `ADMIN_USERS`.
+1. **Set the required configuration** (see [Configuration](#configuration)): `SECRET_KEY`, `ALLOWED_HOSTS`, `HYDRA_ADMIN_URL` (pointing at a running Hydra instance), the database, an email backend, and — important for bootstrapping — `ADMIN_USERS`.
 
 2. **Run migrations.** The deploy entry points do this for you (the `Procfile` release phase; the container/compose start commands). Manually it is `cd iam && python manage.py migrate`.
 
@@ -160,7 +214,7 @@ Signing in to the service at all is gated by a global allow-list, applied to bot
 - it is a `.gov.uk` address (matched on label boundaries, so `notgov.uk` does **not** qualify);
 - its domain is allowed by **some** team (the union of every team's allowed domains).
 
-Otherwise it is refused. The admin and `.gov.uk` allowances are the bootstrap escape hatches: on a fresh instance with no team domains yet, they are the only way in (without them, no one could sign in to configure the first team). This global gate is coarser than, and sits in front of, the per-application [domain restriction](#django-oauth-toolkit--how-other-services-authenticate-their-users) — passing it lets you hold an account here; each application still checks its own team's domains at authorize time.
+Otherwise it is refused. The admin and `.gov.uk` allowances are the bootstrap escape hatches: on a fresh instance with no team domains yet, they are the only way in (without them, no one could sign in to configure the first team). This global gate is coarser than, and sits in front of, the per-application [domain restriction](#ory-hydra--how-other-services-authenticate-their-users) — passing it lets you hold an account here; each application still checks its own team's domains at the login-challenge step.
 
 ## Running tests
 
@@ -172,7 +226,7 @@ make db      # start Postgres (once; stays up for repeated runs)
 make test
 ```
 
-Tests run against PostgreSQL — the service requires it, with no SQLite fallback — and use the `locmem` email backend. `make db` starts the Postgres container the tests connect to. The full OIDC flow is covered in `tests/test_oidc_flow.py`.
+Tests run against PostgreSQL — the service requires it, with no SQLite fallback — and use the `locmem` email backend. `make db` starts the Postgres container the tests connect to. Ory Hydra is not run for the unit suite; its admin API is faked in-memory (see `tests/conftest.py`'s `fake_hydra` fixture) so the login/consent-challenge views can be exercised without a live Hydra instance. The full flow against a real Hydra is covered by the integration tests below and by `tests/test_oidc_flow.py`'s narrower in-process coverage.
 
 ### Integration tests (Playwright)
 
@@ -186,4 +240,4 @@ make integration-test
 
 The tests seed data (teams, users) by shelling into the running `iam` container with `docker compose exec`, so they must be run from the repository root against the compose stack — not against a bare `make run` server.
 
-Both suites run in CI (`.github/workflows/ci.yml`); the integration job builds the compose stack on the runner and generates a throwaway `oidc.key`.
+Both suites run in CI (`.github/workflows/ci.yml`); the integration job builds the compose stack on the runner, which includes standing up Ory Hydra and its own database.

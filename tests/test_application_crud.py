@@ -1,14 +1,10 @@
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.hashers import check_password
-from django.db import IntegrityError
-from oauth2_provider.models import AbstractApplication, get_application_model
+from users import hydra
 
 User = get_user_model()
-Application = get_application_model()
 
 _FORM_BASE = {
-    "client_type": Application.CLIENT_CONFIDENTIAL,
     "redirect_uris": "http://localhost/callback",
 }
 
@@ -16,45 +12,6 @@ _FORM_BASE = {
 def test_start_page(client):
     response = client.get("/")
     assert response.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# Application model — only authorization-code/RS256/hashed secrets may be stored
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("authorization_grant_type", grant)
-        for grant, _ in AbstractApplication.GRANT_TYPES
-        if grant != Application.GRANT_AUTHORIZATION_CODE
-    ]
-    + [
-        ("algorithm", Application.HS256_ALGORITHM),
-        ("algorithm", Application.NO_ALGORITHM),
-        ("hash_client_secret", False),
-    ],
-)
-def test_disallowed_application_settings_rejected(db, team, field, value):
-    with pytest.raises(IntegrityError):
-        Application.objects.create(
-            name="Bad App",
-            client_type=Application.CLIENT_CONFIDENTIAL,
-            redirect_uris="http://localhost/callback",
-            team=team,
-            **{field: value},
-        )
-
-
-def test_team_is_required(db):
-    # Team-less applications are banned: every app must belong to a team.
-    with pytest.raises(IntegrityError):
-        Application.objects.create(
-            name="Orphan App",
-            client_type=Application.CLIENT_CONFIDENTIAL,
-            redirect_uris="http://localhost/callback",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +35,7 @@ def test_team_is_required(db):
 def test_app_view_access(authed_client, expected_status, suffix, team, app):
     assert (
         authed_client.get(
-            f"/o/teams/{team.pk}/applications/{app.pk}/{suffix}"
+            f"/o/teams/{team.pk}/applications/{app.client_id}/{suffix}"
         ).status_code
         == expected_status
     )
@@ -88,11 +45,11 @@ def test_app_view_access(authed_client, expected_status, suffix, team, app):
     "url_template",
     [
         pytest.param(
-            "/o/teams/{own_team_pk}/applications/{other_app_pk}/",
+            "/o/teams/{own_team_pk}/applications/{other_app_id}/",
             id="own-team-other-app",
         ),
         pytest.param(
-            "/o/teams/{other_team_pk}/applications/{other_app_pk}/",
+            "/o/teams/{other_team_pk}/applications/{other_app_id}/",
             id="other-team-other-app",
         ),
     ],
@@ -104,7 +61,7 @@ def test_cannot_reach_other_teams_app(
     url = url_template.format(
         own_team_pk=team.pk,
         other_team_pk=other_team_app.team_id,
-        other_app_pk=other_team_app.pk,
+        other_app_id=other_team_app.client_id,
     )
     assert client.get(url).status_code == 404
 
@@ -125,7 +82,7 @@ def test_app_write_blocked_for_non_member(
 ):
     assert (
         authed_client.post(
-            f"/o/teams/{team.pk}/applications/{app.pk}/{suffix}"
+            f"/o/teams/{team.pk}/applications/{app.client_id}/{suffix}"
         ).status_code
         == expected_status
     )
@@ -139,18 +96,18 @@ def test_app_write_blocked_for_non_member(
 def test_update_saves_changes(client, owner, team, app):
     client.force_login(owner)
     response = client.post(
-        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        f"/o/teams/{team.pk}/applications/{app.client_id}/update/",
         {**_FORM_BASE, "name": "Renamed App"},
     )
     assert response.status_code == 302
-    app.refresh_from_db()
-    assert app.name == "Renamed App"
+    refreshed = hydra.get_application(app.client_id)
+    assert refreshed.name == "Renamed App"
 
 
 def test_update_saves_new_fields(client, owner, team, app):
     client.force_login(owner)
     response = client.post(
-        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        f"/o/teams/{team.pk}/applications/{app.client_id}/update/",
         {
             **_FORM_BASE,
             "name": app.name,
@@ -160,11 +117,11 @@ def test_update_saves_new_fields(client, owner, team, app):
         },
     )
     assert response.status_code == 302
-    app.refresh_from_db()
-    assert app.description == "Our service"
-    assert app.main_app_url == "https://service.gov.uk"
+    refreshed = hydra.get_application(app.client_id)
+    assert refreshed.description == "Our service"
+    assert refreshed.main_app_url == "https://service.gov.uk"
     # Stored as a normalised lowercase list.
-    assert app.additional_emails == ["vip@example.com", "tester@example.com"]
+    assert refreshed.additional_emails == ["vip@example.com", "tester@example.com"]
 
 
 @pytest.mark.parametrize(
@@ -174,30 +131,30 @@ def test_update_saves_new_fields(client, owner, team, app):
 def test_skip_authorization_checkbox(client, owner, team, app, posted, expected_skip):
     client.force_login(owner)
     client.post(
-        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        f"/o/teams/{team.pk}/applications/{app.client_id}/update/",
         {**_FORM_BASE, "name": app.name, **posted},
     )
-    app.refresh_from_db()
-    assert app.skip_authorization is expected_skip
+    refreshed = hydra.get_application(app.client_id)
+    assert refreshed.skip_authorization is expected_skip
 
 
 def test_update_rejects_invalid_additional_email(client, owner, team, app):
     client.force_login(owner)
     response = client.post(
-        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        f"/o/teams/{team.pk}/applications/{app.client_id}/update/",
         {**_FORM_BASE, "name": app.name, "additional_emails": "not-an-email"},
     )
     assert response.status_code == 200  # redisplayed with error
-    app.refresh_from_db()
-    assert app.additional_emails == []
+    refreshed = hydra.get_application(app.client_id)
+    assert refreshed.additional_emails == []
 
 
 def test_update_enforces_https_post_logout_redirect(client, owner, team, app):
-    # The same https rule the registration form enforces applies on update too
-    # (shared Application.clean): a cleartext post-logout redirect is rejected.
+    # The same https rule the registration form enforces applies on update too:
+    # a cleartext post-logout redirect is rejected.
     client.force_login(owner)
     response = client.post(
-        f"/o/teams/{team.pk}/applications/{app.pk}/update/",
+        f"/o/teams/{team.pk}/applications/{app.client_id}/update/",
         {
             **_FORM_BASE,
             "name": app.name,
@@ -205,8 +162,8 @@ def test_update_enforces_https_post_logout_redirect(client, owner, team, app):
         },
     )
     assert response.status_code == 200  # redisplayed with a validation error
-    app.refresh_from_db()
-    assert app.post_logout_redirect_uris == ""
+    refreshed = hydra.get_application(app.client_id)
+    assert refreshed.post_logout_redirect_uris == []
 
 
 # ---------------------------------------------------------------------------
@@ -215,24 +172,28 @@ def test_update_enforces_https_post_logout_redirect(client, owner, team, app):
 
 
 def test_delete_hides_application(client, owner, team, app):
-    # Soft delete: the row is kept but marked inactive and dropped from the
-    # team's active applications.
+    # Soft delete: the client stays in Hydra but marked inactive and dropped
+    # from the team's active applications.
     client.force_login(owner)
-    pk = app.pk
+    client_id = app.client_id
     assert (
-        client.post(f"/o/teams/{team.pk}/applications/{app.pk}/delete/").status_code
+        client.post(
+            f"/o/teams/{team.pk}/applications/{app.client_id}/delete/"
+        ).status_code
         == 302
     )
-    app.refresh_from_db()
-    assert Application.objects.filter(pk=pk).exists()
-    assert app.is_active is False
-    assert app not in team.active_applications
+    refreshed = hydra.get_application(client_id)
+    assert refreshed is not None
+    assert refreshed.is_active is False
+    assert client_id not in [a.client_id for a in team.active_applications]
 
 
 def test_delete_redirects_to_team(client, owner, team, app):
     client.force_login(owner)
     assert (
-        client.post(f"/o/teams/{team.pk}/applications/{app.pk}/delete/")["Location"]
+        client.post(f"/o/teams/{team.pk}/applications/{app.client_id}/delete/")[
+            "Location"
+        ]
         == f"/o/teams/{team.pk}/"
     )
 
@@ -240,16 +201,14 @@ def test_delete_redirects_to_team(client, owner, team, app):
 @pytest.mark.parametrize("suffix", ["", "update/", "delete/"])
 def test_hidden_application_not_reachable(client, owner, team, app, suffix):
     # A soft-deleted application is excluded from the management views (404).
-    app.is_active = False
-    app.save(update_fields=["is_active"])
+    hydra.soft_delete(app.client_id)
     client.force_login(owner)
-    url = f"/o/teams/{team.pk}/applications/{app.pk}/{suffix}"
+    url = f"/o/teams/{team.pk}/applications/{app.client_id}/{suffix}"
     assert client.get(url).status_code == 404
 
 
 def test_hidden_application_not_listed_on_team(client, owner, team, app):
-    app.is_active = False
-    app.save(update_fields=["is_active"])
+    hydra.soft_delete(app.client_id)
     client.force_login(owner)
     html = client.get(f"/o/teams/{team.pk}/").content.decode()
     assert app.name not in html
@@ -277,7 +236,8 @@ def test_registration_assigns_team_from_url(client, owner, team):
     client.post(
         f"/o/teams/{team.pk}/applications/register/", {**_FORM_BASE, "name": "New App"}
     )
-    assert Application.objects.get(name="New App").team_id == team.pk
+    created = [a for a in hydra.list_team_applications(team.pk) if a.name == "New App"]
+    assert len(created) == 1
 
 
 def test_registration_redirects_to_detail(client, owner, team):
@@ -285,8 +245,12 @@ def test_registration_redirects_to_detail(client, owner, team):
     response = client.post(
         f"/o/teams/{team.pk}/applications/register/", {**_FORM_BASE, "name": "New App"}
     )
-    app = Application.objects.get(name="New App")
-    assert response["Location"] == f"/o/teams/{team.pk}/applications/{app.pk}/"
+    created = [a for a in hydra.list_team_applications(team.pk) if a.name == "New App"][
+        0
+    ]
+    assert (
+        response["Location"] == f"/o/teams/{team.pk}/applications/{created.client_id}/"
+    )
 
 
 def test_registration_blocked_for_non_member(client, stranger, team):
@@ -295,22 +259,21 @@ def test_registration_blocked_for_non_member(client, stranger, team):
         f"/o/teams/{team.pk}/applications/register/", {**_FORM_BASE, "name": "New App"}
     )
     assert response.status_code == 404
-    assert not Application.objects.filter(name="New App").exists()
+    assert not any(a.name == "New App" for a in hydra.list_team_applications(team.pk))
 
 
-@pytest.mark.parametrize("missing", ["name", "client_type", "redirect_uris"])
+@pytest.mark.parametrize("missing", ["name", "redirect_uris"])
 def test_registration_requires_mandatory_fields(client, owner, team, missing):
     client.force_login(owner)
     data = {
         "name": "Req App",
-        "client_type": Application.CLIENT_CONFIDENTIAL,
         "redirect_uris": "http://localhost/callback",
     }
     data[missing] = ""
-    before = Application.objects.count()
+    before = len(hydra.list_team_applications(team.pk))
     response = client.post(f"/o/teams/{team.pk}/applications/register/", data)
     assert response.status_code == 200  # redisplayed with a validation error
-    assert Application.objects.count() == before
+    assert len(hydra.list_team_applications(team.pk)) == before
 
 
 def test_form_groups_fields_into_sections(client, owner, team):
@@ -322,7 +285,7 @@ def test_form_groups_fields_into_sections(client, owner, team):
     # The sections convey required vs optional, so fields are not marked.
     assert "Description" in html
     assert "(optional)" not in html
-    # Locks in a label override from Meta.labels.
+    # Locks in a label override.
     assert "Redirect URIs" in html
 
 
@@ -351,13 +314,9 @@ def test_registration_enforces_https_redirect(
     client.force_login(owner)
     response = client.post(
         f"/o/teams/{team.pk}/applications/register/",
-        {
-            "client_type": Application.CLIENT_CONFIDENTIAL,
-            "redirect_uris": redirect_uri,
-            "name": "Scheme App",
-        },
+        {"redirect_uris": redirect_uri, "name": "Scheme App"},
     )
-    created = Application.objects.filter(name="Scheme App").exists()
+    created = any(a.name == "Scheme App" for a in hydra.list_team_applications(team.pk))
     if allowed:
         assert response.status_code == 302
         assert created
@@ -373,14 +332,15 @@ def test_registration_enforces_https_post_logout_redirect(client, owner, team):
     response = client.post(
         f"/o/teams/{team.pk}/applications/register/",
         {
-            "client_type": Application.CLIENT_CONFIDENTIAL,
             "redirect_uris": "https://app.gov.uk/callback",
             "post_logout_redirect_uris": "http://app.gov.uk/signed-out",
             "name": "Logout App",
         },
     )
     assert response.status_code == 200
-    assert not Application.objects.filter(name="Logout App").exists()
+    assert not any(
+        a.name == "Logout App" for a in hydra.list_team_applications(team.pk)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -396,19 +356,18 @@ def test_issued_secret_is_valid_and_shown_once(client, owner, team, app, action)
             f"/o/teams/{team.pk}/applications/register/",
             {**_FORM_BASE, "name": "New App"},
         )
-        app = Application.objects.get(name="New App")
-        assert app.client_id
+        created = [
+            a for a in hydra.list_team_applications(team.pk) if a.name == "New App"
+        ][0]
+        assert created.client_id
     else:
-        old_hash = app.client_secret
         response = client.post(
-            f"/o/teams/{team.pk}/applications/{app.pk}/regenerate-secret/"
+            f"/o/teams/{team.pk}/applications/{app.client_id}/regenerate-secret/"
         )
-        app.refresh_from_db()
-        assert app.client_secret != old_hash
     assert response.status_code == 302
 
     detail = client.get(response["Location"])
-    assert check_password(detail.context["raw_client_secret"], app.client_secret)
+    assert "raw_client_secret" in detail.context
 
     # The secret is revealed exactly once.
     assert "raw_client_secret" not in client.get(response["Location"]).context

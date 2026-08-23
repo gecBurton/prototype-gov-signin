@@ -3,7 +3,7 @@ import hashlib
 import secrets
 import uuid
 
-from conftest import DEMO_EMAIL, IAM, login_to_iam
+from conftest import DEMO_EMAIL, HYDRA_PUBLIC, IAM, login_to_iam
 from playwright.sync_api import Page, expect
 
 
@@ -19,7 +19,6 @@ def register_application(page: Page, *, team_name: str, name: str) -> tuple[str,
     page.get_by_role("link", name="Register a new application").click()
     page.wait_for_url(f"{IAM}/o/teams/*/applications/register/")
     page.fill('[name="name"]', name)
-    page.select_option('[name="client_type"]', "confidential")
     page.fill('[name="redirect_uris"]', "http://localhost/callback")
     page.get_by_role("button", name="Save").click()
     page.wait_for_url(f"{IAM}/o/teams/*/applications/*/")
@@ -43,6 +42,8 @@ def _pkce_params(client_id: str) -> str:
         f"&redirect_uri=http://localhost/callback"
         f"&code_challenge={code_challenge}"
         f"&code_challenge_method=S256"
+        # Hydra requires state to be at least 8 characters.
+        f"&state=e2e-state-value"
     )
 
 
@@ -98,12 +99,13 @@ def test_domain_restricted_application_blocks_user(
 
     # A user who may sign in (a .gov.uk address passes the global sign-in gate)
     # but whose domain is not on this app's team allow-list ("allowed.com") is
-    # blocked at the authorize step.
+    # blocked at the login-challenge step. Going through Hydra's real
+    # /oauth2/auth endpoint exercises the full delegated flow end-to-end.
     blocked_email = f"e2e-{uuid.uuid4().hex[:8]}@example.gov.uk"
     ctx2 = browser.new_context()
     blocked_page = ctx2.new_page()
     login_to_iam(blocked_page, blocked_email)
-    blocked_page.goto(f"{IAM}/o/authorize/{_pkce_params(client_id)}")
+    blocked_page.goto(f"{HYDRA_PUBLIC}/oauth2/auth{_pkce_params(client_id)}")
     expect(blocked_page.locator("h1")).to_contain_text(
         "You cannot access this application"
     )

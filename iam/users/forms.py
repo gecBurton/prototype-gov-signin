@@ -1,23 +1,59 @@
+from urllib.parse import urlparse
+
 from allauth.account.forms import RequestLoginCodeForm
 from allauth.account.models import EmailAddress
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from oauth2_provider.models import get_application_model
 
 from users.domains import is_signin_domain_allowed
 
 User = get_user_model()
 
+# http is only safe for loopback redirect URIs (a developer's own machine, per
+# RFC 8252); anywhere else a cleartext redirect can leak the authorization code.
+_LOOPBACK_REDIRECT_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
-class ApplicationForm(forms.ModelForm):
-    """Create/update form for an OAuth application."""
 
-    # The model field is a Postgres array; keep the friendlier whitespace-
-    # separated textarea here rather than allauth/ArrayField's comma-separated
-    # default. clean_additional_emails turns the text into the stored list, and
-    # __init__ renders the stored list back as text when editing.
+def _validate_https_uris(value, field_label):
+    """Require https for a whitespace-separated list of URIs.
+
+    http is allowed only for loopback hosts (localhost, during development).
+    Applies to redirect_uris and post_logout_redirect_uris alike — a cleartext
+    endpoint could leak an authorization code or a logout redirect.
+    """
+    for uri in value.split():
+        parsed = urlparse(uri)
+        if parsed.scheme == "http" and parsed.hostname not in _LOOPBACK_REDIRECT_HOSTS:
+            raise ValidationError(
+                f"{uri} must use https. http is only allowed for loopback "
+                "addresses (localhost) during development."
+            )
+
+
+class ApplicationForm(forms.Form):
+    """Create/update form for an OAuth application (a Hydra client).
+
+    No backing Django model — fetched/saved via users.hydra.
+    """
+
+    name = forms.CharField(label="Name", max_length=255)
+    redirect_uris = forms.CharField(
+        label="Redirect URIs",
+        widget=forms.Textarea,
+        help_text="One or more URIs, space separated.",
+    )
+    description = forms.CharField(
+        required=False,
+        widget=forms.Textarea,
+        help_text="What this application is for. Shown to the team, not to end users.",
+    )
+    main_app_url = forms.URLField(
+        required=False,
+        label="Main app URL",
+        help_text="The application's home page, e.g. https://my-service.gov.uk.",
+    )
     additional_emails = forms.CharField(
         required=False,
         widget=forms.Textarea,
@@ -26,50 +62,47 @@ class ApplicationForm(forms.ModelForm):
             "space separated, regardless of the team's allowed domains."
         ),
     )
+    post_logout_redirect_uris = forms.CharField(
+        required=False,
+        label="Post-logout redirect URIs",
+        widget=forms.Textarea,
+    )
+    allowed_origins = forms.CharField(
+        required=False,
+        widget=forms.Textarea,
+        help_text="Origins allowed to make CORS requests, space separated.",
+    )
+    skip_authorization = forms.BooleanField(
+        required=False,
+        label="Skip the consent screen",
+        help_text=(
+            "Tick to send users straight through without showing a consent "
+            "screen the first time they sign in to this application."
+        ),
+    )
+    listed = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Show in the applications directory",
+    )
 
-    class Meta:
-        model = get_application_model()
-        fields = (
-            "name",
-            "client_type",
-            "redirect_uris",
-            "description",
-            "main_app_url",
-            "additional_emails",
-            "post_logout_redirect_uris",
-            "allowed_origins",
-            "skip_authorization",
-            "listed",
-        )
-        # Only override the labels Django would otherwise mis-case or where the
-        # model name reads poorly; the rest fall back to the model fields'
-        # verbose names.
-        labels = {
-            "redirect_uris": "Redirect URIs",
-            "main_app_url": "Main app URL",
-            "post_logout_redirect_uris": "Post-logout redirect URIs",
-            "skip_authorization": "Skip the consent screen",
-            "listed": "Show in the applications directory",
-        }
-        help_texts = {
-            "skip_authorization": (
-                "Tick to send users straight through without showing a consent "
-                "screen the first time they sign in to this application."
-            ),
-        }
-
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, application=None, **kwargs):
+        """``application``: a users.hydra.Application to seed initial values from."""
+        if application is not None and "initial" not in kwargs:
+            kwargs["initial"] = {
+                "name": application.name,
+                "redirect_uris": " ".join(application.redirect_uris),
+                "description": application.description,
+                "main_app_url": application.main_app_url,
+                "additional_emails": " ".join(application.additional_emails),
+                "post_logout_redirect_uris": " ".join(
+                    application.post_logout_redirect_uris
+                ),
+                "allowed_origins": " ".join(application.allowed_cors_origins),
+                "skip_authorization": application.skip_authorization,
+                "listed": application.listed,
+            }
         super().__init__(*args, **kwargs)
-        # name and redirect_uris are blank=True on the model (the toolkit allows
-        # admin-seeded clients without them) but a team filling in this form must
-        # provide them, so they are required here.
-        self.fields["name"].required = True
-        self.fields["redirect_uris"].required = True
-        # Render the stored list back as whitespace-separated text when editing.
-        if self.instance and self.instance.pk:
-            self.initial["additional_emails"] = " ".join(
-                self.instance.additional_emails
-            )
 
     def clean_additional_emails(self):
         emails = []
@@ -82,37 +115,42 @@ class ApplicationForm(forms.ModelForm):
             emails.append(email)
         return emails
 
+    def clean_redirect_uris(self):
+        value = self.cleaned_data["redirect_uris"]
+        _validate_https_uris(value, "Redirect URIs")
+        return value
+
+    def clean_post_logout_redirect_uris(self):
+        value = self.cleaned_data["post_logout_redirect_uris"]
+        _validate_https_uris(value, "Post-logout redirect URIs")
+        return value
+
+    def to_hydra_kwargs(self) -> dict:
+        """Cleaned data shaped for users.hydra.create_application/update_application."""
+        data = self.cleaned_data
+        return {
+            "name": data["name"],
+            "redirect_uris": data["redirect_uris"].split(),
+            "post_logout_redirect_uris": data["post_logout_redirect_uris"].split(),
+            "allowed_cors_origins": data["allowed_origins"].split(),
+            "skip_authorization": data["skip_authorization"],
+            "description": data["description"],
+            "main_app_url": data["main_app_url"],
+            "additional_emails": data["additional_emails"],
+            "listed": data["listed"],
+        }
+
 
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
     """Login-by-code that enrols unknown email addresses instead of bouncing them.
 
-    By default allauth's clean_email finds no account for an unknown address,
-    leaving it to send an enumeration-safe "no account" mail. We make the
-    account exist *before* delegating to allauth: its own lookup then finds the
-    user and sends a login code, with no need to touch allauth's private
-    ``self._user``. The only coupling left is the supported one — subclassing
-    the configured RequestLoginCodeForm and calling super().
-
-    The address is created unverified; allauth marks it verified once the
-    emailed code is confirmed, which is what satisfies
-    ACCOUNT_EMAIL_VERIFICATION="mandatory". An EmailAddress row is also ensured
-    for any pre-existing user that lacks one (e.g. seed- or admin-created
-    accounts), so confirming the code can verify it.
-
-    Field validation has already run by the time clean_email is called, so
-    self.cleaned_data["email"] is a valid, normalised address. Creating the
-    account here (before super()'s rate-limit check) means an address rejected
-    by the per-IP limit can still leave an unverified, unusable-password row;
-    that is an accepted trade-off (see ACCOUNT_RATE_LIMITS in settings.py).
+    Creates the account before delegating to allauth, so allauth's own
+    lookup finds it. Created unverified; allauth verifies on code confirm.
     """
 
     def clean_email(self) -> str:
         email = self.cleaned_data.get("email")
         if email:
-            # Global sign-in gate: refuse domains no team would admit, before
-            # creating any account row (see users.domains.is_signin_domain_allowed).
-            # Applies to returning users too — this gates signing in, not just
-            # first enrolment.
             if not is_signin_domain_allowed(email):
                 raise ValidationError("Your email is not allowed to sign in.")
             user, created = User.objects.get_or_create(email=email)
@@ -124,5 +162,4 @@ class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
                 email=email,
                 defaults={"primary": True, "verified": False},
             )
-        # The account now exists, so allauth's lookup sets self._user itself.
         return super().clean_email()

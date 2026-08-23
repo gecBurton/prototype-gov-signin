@@ -1,27 +1,28 @@
-import json
-from urllib.parse import parse_qs, urlparse
-
 import pytest
 
-from tests.conftest import (
-    CLIENT_ID,
-    authorize_params,
-    decode_id_token,
-    exchange_code_for_tokens,
-    login_code,
-    pkce_pair,
-)
+from tests.conftest import login_code, make_hydra_application
 
 
 @pytest.mark.django_db
-def test_full_oidc_authorization_code_flow(client, demo_user, oauth_app, mailoutbox):
-    code_verifier, code_challenge = pkce_pair()
-    params = authorize_params(
-        scope="openid profile email", code_challenge=code_challenge
-    )
+def test_full_login_and_consent_flow(
+    client, fake_hydra, demo_team, demo_user, mailoutbox
+):
+    """The parts of the OIDC flow this app is responsible for.
 
-    # 1. Unauthenticated user hits /o/authorize/ — bounced to login
-    response = client.get("/o/authorize/", params)
+    Ory Hydra owns the actual authorization/token/userinfo endpoints and is
+    not running in the unit test suite (see tests/conftest.py's fake_hydra),
+    so this test covers exactly what this app does: deciding, given a Hydra
+    login_challenge and then a consent_challenge, whether the user may sign
+    in to a given application, and recording the SignInEvent. The full
+    end-to-end flow (through Hydra's real /oauth2/token endpoint) is covered
+    by integration_tests/ against the real docker compose stack.
+    """
+    application = make_hydra_application(fake_hydra, demo_team, name="Grafana")
+    login_challenge = fake_hydra.start_login(application.client_id)
+
+    # 1. Unauthenticated user hits the login view — bounced to allauth's login,
+    # preserving ?next= so they land back here once authenticated.
+    response = client.get(f"/o/login/?login_challenge={login_challenge}")
     assert response.status_code == 302
     assert "/accounts/login/" in response["Location"]
 
@@ -36,41 +37,47 @@ def test_full_oidc_authorization_code_flow(client, demo_user, oauth_app, mailout
     )
     assert response.status_code == 302
 
-    # 4. Authenticated user reaches the consent screen
-    response = client.get("/o/authorize/", params)
-    assert response.status_code == 200
-
-    # 5. User approves — server issues an auth code
-    response = client.post("/o/authorize/", {**params, "allow": "Authorize"})
+    # 4. Authenticated + allowed user's login request is accepted, redirecting
+    # back into Hydra to continue the flow.
+    response = client.get(f"/o/login/?login_challenge={login_challenge}")
     assert response.status_code == 302
-    auth_code = parse_qs(urlparse(response["Location"]).query).get("code", [None])[0]
-    assert auth_code, "No auth code in redirect"
+    assert "flow=login" in response["Location"]
 
-    # 6. Client exchanges auth code for tokens
-    response = exchange_code_for_tokens(client, auth_code, code_verifier)
-    assert response.status_code == 200
-    tokens = json.loads(response.content)
-    assert "access_token" in tokens
-    assert "id_token" in tokens
-    # Access tokens are deliberately short-lived (not the multi-hour default) so
-    # access does not long outlive a change in authorization.
-    assert tokens["expires_in"] <= 600
+    # 5. Hydra would now redirect to the consent endpoint with its own
+    # challenge; simulate that.
+    consent_challenge = fake_hydra.start_consent(application.client_id)
+    response = client.get(f"/o/consent/?consent_challenge={consent_challenge}")
+    assert response.status_code == 200  # consent screen shown (not skip_consent)
 
-    # 7. Client calls userinfo with the access token
-    response = client.get(
-        "/o/userinfo/",
-        HTTP_AUTHORIZATION=f"Bearer {tokens['access_token']}",
+    response = client.post(
+        "/o/consent/",
+        {"consent_challenge": consent_challenge, "allow": "Authorize"},
     )
-    assert response.status_code == 200
-    userinfo = json.loads(response.content)
-    assert "sub" in userinfo
+    assert response.status_code == 302
+    assert "flow=consent" in response["Location"]
 
-    # 8. ID token contains expected claims
-    claims = decode_id_token(tokens["id_token"])
-    assert claims["aud"] == CLIENT_ID
-    assert claims["sub"] == str(demo_user.pk)
-    assert "iss" in claims
-    # The login-by-code flow proves mailbox control, so the verified claim the
-    # relying party trusts must be True for this legitimate path.
-    assert claims["email"] == demo_user.email
-    assert claims["email_verified"] is True
+    from users.models import SignInEvent
+
+    event = SignInEvent.objects.get()
+    assert event.user == demo_user
+    assert event.application_client_id == application.client_id
+
+
+@pytest.fixture
+def demo_team(db):
+    from users.models import Team
+
+    team = Team.objects.create(name="Demo")
+    team.allowed_email_domains.create(domain="example.com")
+    return team
+
+
+@pytest.fixture
+def demo_user(db):
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    user, _ = User.objects.get_or_create(email="demo@example.com")
+    user.set_unusable_password()
+    user.save()
+    return user

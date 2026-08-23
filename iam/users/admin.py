@@ -22,13 +22,24 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(SignInEvent)
 class SignInEventAdmin(admin.ModelAdmin):
-    """Read-only audit view of application sign-ins."""
+    """Read-only audit view of application sign-ins.
 
-    list_display = ("created", "user", "application")
-    list_filter = ("application", "created")
-    search_fields = ("user__email", "application__name")
+    application_client_id/application_name/team are a denormalised snapshot
+    (see users.models.SignInEvent) rather than a foreign key, since
+    applications themselves live in Hydra, not this database.
+    """
+
+    list_display = ("created", "user", "application_name", "team")
+    list_filter = ("team", "created")
+    search_fields = ("user__email", "application_name")
     date_hierarchy = "created"
-    readonly_fields = ("user", "application", "created")
+    readonly_fields = (
+        "user",
+        "application_client_id",
+        "application_name",
+        "team",
+        "created",
+    )
 
     def has_add_permission(self, request):
         return False
