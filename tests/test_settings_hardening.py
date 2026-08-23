@@ -168,3 +168,42 @@ def test_login_code_rate_limit_tightened_without_clobbering_defaults():
     # allauth merges (ret.update) — its other defaults must survive.
     assert rate_limits["login"] == "30/m/ip"
     assert rate_limits["reset_password"]
+
+
+_PRINT_GOOGLE_INSTALLED = (
+    "import django; django.setup();"
+    "from django.conf import settings;"
+    "print('allauth.socialaccount.providers.google' in settings.INSTALLED_APPS)"
+)
+
+
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        # No Google credentials: the provider must not be registered, or
+        # allauth's login page renders a "Sign in with Google" button that
+        # 500s the moment someone clicks it (TypeError encoding a None
+        # client_id) — this is exactly the failure mode this test guards.
+        ({}, "False"),
+        ({"GOOGLE_CLIENT_ID": "id"}, "False"),  # secret missing too: still off
+        ({"GOOGLE_CLIENT_ID": "id", "GOOGLE_CLIENT_SECRET": "secret"}, "True"),
+    ],
+)
+def test_google_provider_only_registered_with_credentials(env, expected):
+    result = subprocess.run(
+        [sys.executable, "-c", _PRINT_GOOGLE_INSTALLED],
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "DJANGO_SETTINGS_MODULE": "settings",
+            "PYTHONPATH": str(IAM_DIR),
+            "SECRET_KEY": "settings-test-key",
+            "DEBUG": "true",
+            "POSTGRES_HOST": "localhost",
+            **env,
+        },
+        cwd=str(IAM_DIR),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
