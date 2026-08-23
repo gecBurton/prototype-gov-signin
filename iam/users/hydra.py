@@ -23,9 +23,9 @@ from django.conf import settings
 
 # Every application this service creates is constrained to this shape: only
 # the authorization-code grant, only the "code" response type, and RS256
-# (Hydra's default asymmetric ID-token signing algorithm). Hydra will still
-# accept a weak (`plain`) PKCE challenge from a client, so that is rejected
-# separately, at the login-challenge step — see users.views._reject_weak_pkce.
+# (Hydra's default asymmetric ID-token signing algorithm). PKCE strictness
+# (S256-only, and mandatory) is enforced by Hydra itself via
+# OAUTH2_PKCE_ENFORCED=true (see docker-compose.yml), not by this app.
 _GRANT_TYPES = ["authorization_code", "refresh_token"]
 _RESPONSE_TYPES = ["code"]
 _SCOPE = "openid profile email"
@@ -350,21 +350,47 @@ def reject_logout(challenge: str) -> str:
     return response.json()["redirect_to"]
 
 
-def discovery_document() -> dict:
-    """Hydra's OIDC discovery document, trimmed to what this app honours.
+def revoke_consent(*, user_id, client_id) -> None:
+    """Revoke a user's consent grant for one application, invalidating its
+    already-issued access and refresh tokens immediately.
 
-    Hydra hardcodes the ``plain`` PKCE method and several grant/response
-    types this service never issues (implicit, client_credentials) into its
-    discovery document. Trim those so a relying party cannot be led to
-    negotiate something the login view will reject anyway (see
-    users.views._reject_weak_pkce).
+    Used when a user's access to a specific application changes underneath
+    them — a domain is removed from its team, or they're removed from the
+    team — so an existing token can't keep working past that point. Verified
+    directly against Hydra: revoking a client-scoped consent grant flips a
+    previously "active" access token to "active": false on introspection.
+
+    Login-session revocation is deliberately not done here and is
+    unnecessary: this app always accepts Hydra's login/consent requests with
+    ``remember=False`` (see accept_login/accept_consent), so Hydra re-issues
+    a fresh login-challenge — re-running the domain check in HydraLoginView —
+    on every single authorization request, even within the same browser
+    session. There is no stale Hydra-side "remembered" login to clear.
+
+    Scoped to one client (not every application the user can reach) so that
+    removing one team's domain, or one team's membership, does not also
+    revoke the user's unrelated access to other teams' applications. A 404
+    (no consent grant to revoke — the user never signed in to this
+    application) is not an error.
     """
-    response = requests.get(
-        f"{settings.HYDRA_PUBLIC_URL.rstrip('/')}/.well-known/openid-configuration",
+    response = requests.delete(
+        _admin_url("/admin/oauth2/auth/sessions/consent"),
+        params={"subject": str(user_id), "client": client_id},
         timeout=10,
     )
-    data = response.json()
-    data["code_challenge_methods_supported"] = ["S256"]
-    data["grant_types_supported"] = ["authorization_code", "refresh_token"]
-    data["response_types_supported"] = ["code"]
-    return data
+    if response.status_code not in (204, 404):
+        raise HydraAdminError(
+            f"DELETE consent sessions for {user_id}/{client_id} "
+            f"-> {response.status_code}: {response.text}"
+        )
+
+
+def revoke_team_consent(*, user_id, team_id) -> None:
+    """Revoke a user's consent for every application owned by a team.
+
+    A thin loop over revoke_consent for each of the team's active
+    applications — used by TeamDomainRemove and TeamMemberRemove, where the
+    access change is scoped to one team, not the user's access globally.
+    """
+    for application in list_team_applications(team_id):
+        revoke_consent(user_id=user_id, client_id=application.client_id)

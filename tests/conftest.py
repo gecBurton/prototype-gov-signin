@@ -32,6 +32,8 @@ class FakeHydra:
         self.login_requests = {}
         self.consent_requests = {}
         self.logout_requests = {}
+        # (subject, client_id) pairs that revoke_consent has been called for.
+        self.revoked_consents = set()
 
     # -- clients ------------------------------------------------------------
 
@@ -214,6 +216,13 @@ def fake_hydra(request):
                 )
             }
 
+        def _revoke_consent(req, ctx):
+            subject = req.qs.get("subject", [""])[0]
+            client_id = req.qs.get("client", [""])[0]
+            hydra.revoked_consents.add((subject, client_id))
+            ctx.status_code = 204
+            return None
+
         m.post(f"{admin_base}/admin/clients", json=_clients_post)
         m.get(re.compile(rf"^{admin_base}/admin/clients(\?.*)?$"), json=_clients_list)
         m.get(re.compile(rf"^{admin_base}/admin/clients/[^/?]+$"), json=_clients_get)
@@ -237,6 +246,10 @@ def fake_hydra(request):
         m.put(
             f"{admin_base}/admin/oauth2/auth/requests/consent/reject",
             json=_consent_reject,
+        )
+        m.delete(
+            f"{admin_base}/admin/oauth2/auth/sessions/consent",
+            json=_revoke_consent,
         )
 
         settings.HYDRA_ADMIN_URL = admin_base

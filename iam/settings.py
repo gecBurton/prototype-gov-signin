@@ -182,11 +182,11 @@ LOGIN_REDIRECT_URL = "/"
 # flow. HYDRA_ADMIN_URL must never be reachable from outside the deployment
 # (see docker-compose.yml / production notes): it has no authentication of its
 # own beyond network isolation, and can mint sign-ins for any application.
+#
+# Hydra's own public endpoints (authorize/token/userinfo/discovery/jwks) are
+# not proxied through this app — relying parties are configured with those
+# URLs directly (see docker-compose.yml's Grafana config).
 HYDRA_ADMIN_URL = os.environ.get("HYDRA_ADMIN_URL", "http://hydra:4445")
-# The public-facing URL of Hydra's own endpoints (authorize/token/jwks etc.),
-# used only to proxy its discovery document (DiscoveryInfoView) with the
-# fields this service doesn't actually honour trimmed off.
-HYDRA_PUBLIC_URL = os.environ.get("HYDRA_PUBLIC_URL", "http://hydra:4444")
 
 # Only allauth's backend — there is no password authentication. allauth's
 # AuthenticationBackend subclasses Django's ModelBackend, so it still provides

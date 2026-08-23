@@ -68,7 +68,7 @@ Three things worth noting about this flow:
 
 - **Django never sees a token, and Hydra never sees a Team.** The only data that crosses the boundary is the challenge IDs (opaque, short-lived) and the claims Django hands Hydra to put in the ID token (`email`, `email_verified`, `sub`).
 - **The domain check runs on every login-challenge**, not just once — so a user who's authenticated to Django (has a session) but whose team's allowed domains have since changed is re-checked each time they try to reach an application, at step "Runs the domain check" above.
-- **Hydra's defaults are slightly broader than what this deployment supports** (it will accept `plain` PKCE, and its discovery document lists grant/response types this app never issues). Django narrows this at two points: `_reject_weak_pkce` rejects `plain` at the login-challenge step, and `DiscoveryInfoView` trims the proxied discovery document — see [Ory Hydra](#ory-hydra--how-other-services-authenticate-their-users) below.
+- **Hydra's defaults are slightly broader than what this deployment supports** (it will accept a request with no PKCE challenge, or the weak `plain` method). Rather than Django re-checking this, Hydra itself is configured to enforce it (`OAUTH2_PKCE_ENFORCED=true`, see `docker-compose.yml`) — verified directly against a running instance: with this set, Hydra rejects both a missing `code_challenge` and `code_challenge_method=plain` at token exchange with its own error. No Django code needs to duplicate this.
 
 ---
 
@@ -127,7 +127,7 @@ user visits Grafana
   → user is logged in to Grafana
 ```
 
-Hydra exposes the standard OIDC endpoints directly (not proxied through this app), at `HYDRA_PUBLIC_URL`:
+Hydra exposes the standard OIDC endpoints directly, and relying parties are configured with those URLs (see `docker-compose.yml`'s Grafana config) rather than via discovery — this app does not proxy or trim Hydra's own discovery document:
 
 | Endpoint | Purpose |
 |---|---|
@@ -137,13 +137,15 @@ Hydra exposes the standard OIDC endpoints directly (not proxied through this app
 | `/.well-known/openid-configuration` | Discovery document |
 | `/.well-known/jwks.json` | Public keys for token verification |
 
-This app additionally proxies a trimmed discovery document at `/o/.well-known/openid-configuration` (see `DiscoveryInfoView` in `iam/users/views.py`), which narrows the `response_types`/`grant_types`/PKCE fields Hydra otherwise advertises down to what this deployment actually honours (authorization-code only, S256-only PKCE).
+**PKCE correctness is Hydra's job, not this app's.** `OAUTH2_PKCE_ENFORCED=true` (set on the `hydra` service in `docker-compose.yml`) makes Hydra itself reject any authorization request that omits a `code_challenge`, or that uses the weak `plain` challenge method (which offers no protection against authorization-code interception — the challenge equals the verifier). Verified directly against a running Hydra instance: with this set, both cases are rejected at token exchange with Hydra's own error message, before a token is ever issued. This app used to duplicate that check itself (see git history for the removed `_reject_weak_pkce`/`DiscoveryInfoView`); it no longer needs to.
 
 **Teams and application management.** Applications are OAuth2 clients registered in Hydra — there is no local database table for them (see `iam/users/hydra.py`, a thin wrapper around Hydra's admin API). Team ownership is recorded on the Hydra client itself (its `owner` field, set to the team's id); everything else this project layers on top of a bare OAuth2 client — description, main app URL, the `additional_emails` allow-list, the `listed`/`is_active` flags — is stored in Hydra's free-form `metadata` field. Teams manage their applications, members, and allowed email domains under `/o/teams/` (views in `iam/users/views.py`). Users and teams are many-to-many via a `Membership` model.
 
 **Domain restriction.** Each team can whitelist email domains (`AllowedEmailDomain`), which apply to all of its applications. Matching is by suffix, so allowing `cabinetoffice.gov.uk` also admits `digital.cabinetoffice.gov.uk`. A team with no domains configured allows **no** users (fail closed) — every domain you want to permit must be added explicitly, so access is never opened to everyone by accident. `HydraLoginView` in `iam/users/views.py` intercepts Hydra's login-challenge redirect and returns 403 if the authenticated user's email domain is not allowed (an application can still list individual `additional_emails` that bypass the domain check).
 
-Note that the check applies **only at the login-challenge step**: removing a domain does not revoke access or refresh tokens that were already issued, and relying parties keep their own sessions. A user who loses access stays signed in to downstream applications until their tokens expire.
+Because this app always accepts Hydra's login/consent requests with `remember=False`, Hydra re-issues a fresh login-challenge — re-running the domain check — on *every* authorization request, even within the same browser session (verified directly: the same session gets a new `login_challenge` on a second visit to `/oauth2/auth`, seconds after the first). So a user who loses domain access is blocked the next time any application tries to authorize them.
+
+What that re-check does *not* do on its own is invalidate an access or refresh token already issued before the access change. For that, `TeamDomainRemove` and `TeamMemberRemove` (`iam/users/views.py`) call `hydra.revoke_team_consent`, which revokes the affected user's consent grant for each of the team's applications via Hydra's admin API (`DELETE /admin/oauth2/auth/sessions/consent?subject=...&client=...`) — verified directly against a running Hydra instance that this immediately flips a previously "active" access token to inactive on introspection. Revocation is scoped to the specific team's applications, not the user's access globally, so removing one team's domain (or membership) does not touch a user's unrelated access to other teams' applications.
 
 This per-application check is distinct from the global sign-in gate that decides whether a user can authenticate to *this* service at all (admins, `.gov.uk`, or any team's allowed domains) — see [Who can sign in](#who-can-sign-in).
 
@@ -151,7 +153,6 @@ This per-application check is distinct from the global sign-in gate that decides
 
 ```python
 HYDRA_ADMIN_URL = "http://hydra:4445"   # never exposed outside the deployment network
-HYDRA_PUBLIC_URL = "http://hydra:4444"  # used only to proxy the discovery document
 ```
 
 Hydra manages its own signing keys and database — there is no equivalent of an `oidc.key` file for this app to generate or provide; that entire concern moved to Hydra (see `docker-compose.yml` for how it's configured locally).
@@ -190,7 +191,7 @@ Outbound email picks a backend from the environment: if `GOVUK_NOTIFY_API_KEY` i
 
 A freshly deployed instance starts empty — no users, teams, or allowed domains. Bringing it up to a working state:
 
-1. **Set the required configuration** (see [Configuration](#configuration)): `SECRET_KEY`, `ALLOWED_HOSTS`, `HYDRA_ADMIN_URL`/`HYDRA_PUBLIC_URL` (pointing at a running Hydra instance), the database, an email backend, and — important for bootstrapping — `ADMIN_USERS`.
+1. **Set the required configuration** (see [Configuration](#configuration)): `SECRET_KEY`, `ALLOWED_HOSTS`, `HYDRA_ADMIN_URL` (pointing at a running Hydra instance), the database, an email backend, and — important for bootstrapping — `ADMIN_USERS`.
 
 2. **Run migrations.** The deploy entry points do this for you (the `Procfile` release phase; the container/compose start commands). Manually it is `cd iam && python manage.py migrate`.
 

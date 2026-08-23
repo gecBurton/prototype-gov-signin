@@ -1,12 +1,11 @@
 from datetime import date
 from functools import cached_property
-from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import Http404, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
@@ -347,6 +346,12 @@ class TeamMemberRemove(TeamMixin, View):
                 },
             )
         user_to_remove.teams.remove(self.team)
+        # Being a team member does not, on its own, grant access to the
+        # team's applications (that's governed by email domain/
+        # additional_emails) — but membership commonly implies domain
+        # membership too, so revoke this user's existing tokens for the
+        # team's applications rather than leaving them valid until expiry.
+        hydra.revoke_team_consent(user_id=user_to_remove.pk, team_id=self.team.pk)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
@@ -371,9 +376,28 @@ class TeamDomainAdd(TeamMixin, View):
 
 class TeamDomainRemove(TeamMixin, View):
     def post(self, request, *args, **kwargs):
-        get_object_or_404(
+        domain = get_object_or_404(
             self.team.allowed_email_domains, pk=kwargs["domain_pk"]
-        ).delete()
+        )
+        domain_value = domain.domain
+        domain.delete()
+        # Revoke tokens for every user this removal actually affects: those
+        # whose email matched the removed domain and don't match any of the
+        # team's remaining domains (so removing one of several overlapping
+        # domains does not needlessly revoke access that another domain
+        # still grants). The icontains filter is just a coarse narrowing —
+        # correctness comes from the exact label-boundary suffix check below
+        # (see users.domains.email_domain_suffixes), matching the same rule
+        # the login-challenge view enforces.
+        User = get_user_model()
+        candidates = User.objects.filter(email__icontains=domain_value)
+        for user in candidates:
+            suffixes = email_domain_suffixes(user.email)
+            if domain_value not in suffixes:
+                continue
+            if self.team.allowed_email_domains.filter(domain__in=suffixes).exists():
+                continue
+            hydra.revoke_team_consent(user_id=user.pk, team_id=self.team.pk)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
@@ -411,25 +435,6 @@ def _is_domain_allowed(application, email):
     ).exists()
 
 
-def _reject_weak_pkce(login_request):
-    """Return a 400 response if the request used weak PKCE, else None.
-
-    Hydra accepts the ``plain`` challenge method, which offers no protection
-    against authorization-code interception (the challenge equals the
-    verifier). Require S256 whenever a challenge is present. The
-    code_challenge/method live in the original relying-party request URL,
-    echoed back on the login request Hydra hands us.
-    """
-    query = parse_qs(urlparse(login_request.get("request_url", "")).query)
-    challenge = query.get("code_challenge", [""])[0]
-    method = query.get("code_challenge_method", [""])[0]
-    if challenge and method != "S256":
-        return HttpResponseBadRequest(
-            "Unsupported code_challenge_method; only S256 is allowed."
-        )
-    return None
-
-
 class HydraLoginView(LoginRequiredMixin, View):
     """The Hydra login-challenge endpoint (``/urls/login`` in Hydra's config).
 
@@ -441,6 +446,11 @@ class HydraLoginView(LoginRequiredMixin, View):
     (immediately — there is no separate "log in" step here, since allauth
     already established who the user is); if not, reject it with a 403-style
     page, mirroring the previous AuthorizationView._check_domain behaviour.
+
+    PKCE correctness (rejecting a missing or weak ``plain`` challenge) is
+    enforced by Hydra itself (``OAUTH2_PKCE_ENFORCED=true``, see
+    docker-compose.yml) at token exchange — this view does not need to check
+    it separately.
     """
 
     template_name = "oauth2_provider/authorization_denied.html"
@@ -453,9 +463,6 @@ class HydraLoginView(LoginRequiredMixin, View):
             login_request = hydra.get_login_request(challenge)
         except hydra.HydraAdminError:
             raise Http404("Unknown or expired login request.")
-
-        if weak := _reject_weak_pkce(login_request):
-            return weak
 
         application = hydra.application_from_client(login_request["client"])
         if not application.is_active:
@@ -552,13 +559,3 @@ class HydraLogoutView(View):
         else:
             redirect_to = hydra.reject_logout(challenge)
         return redirect(redirect_to)
-
-
-class DiscoveryInfoView(View):
-    """Proxy Hydra's discovery document, trimmed to what this server honours.
-
-    See users.hydra.discovery_document for what's trimmed and why.
-    """
-
-    def get(self, request, *args, **kwargs):
-        return JsonResponse(hydra.discovery_document())

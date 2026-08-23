@@ -46,12 +46,20 @@ services:
       DSN: "postgres://iam:iam@db:5432/hydra?sslmode=disable"
       # The browser-facing issuer/endpoints use localhost; container-to-
       # container admin calls (from iam) use the hydra:4445 service name —
-      # see HYDRA_ADMIN_URL/HYDRA_PUBLIC_URL on the iam service below.
+      # see HYDRA_ADMIN_URL on the iam service below.
       URLS_SELF_ISSUER: "http://localhost:4444"
       URLS_LOGIN: "http://localhost:8000/o/login/"
       URLS_CONSENT: "http://localhost:8000/o/consent/"
       URLS_LOGOUT: "http://localhost:8000/o/logout/"
       SECRETS_SYSTEM: "insecure-dev-hydra-system-secret-32-chars-min"
+      # Reject any authorization request that omits PKCE, or that uses the
+      # weak `plain` challenge method (which offers no protection against
+      # authorization-code interception — the challenge equals the verifier).
+      # Verified directly against Hydra: with this set, both a missing
+      # code_challenge and code_challenge_method=plain are rejected at token
+      # exchange with Hydra's own error, so this app no longer needs to
+      # enforce S256 itself (see the removed users.views._reject_weak_pkce).
+      OAUTH2_PKCE_ENFORCED: "true"
     ports:
       - "4444:4444"   # public: authorize/token/jwks/userinfo
       - "4445:4445"   # admin: client CRUD, login/consent/logout challenges
@@ -121,12 +129,10 @@ services:
       ADMIN_USERS: "demo@example.com"
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
-      # Container-to-container: iam calls Hydra's admin API directly, and
-      # proxies its discovery document from the public API (see
-      # users.views.DiscoveryInfoView). HYDRA_ADMIN_URL is never exposed
-      # outside this compose network.
+      # Container-to-container: iam calls Hydra's admin API to manage clients
+      # and to accept/reject login, consent and logout challenges. Never
+      # exposed outside this compose network.
       HYDRA_ADMIN_URL: "http://hydra:4445"
-      HYDRA_PUBLIC_URL: "http://hydra:4444"
       # "Sign in with Google" is wired to the local Dex stand-in (see the dex
       # service), so the flow works without real Google credentials. The
       # browser-facing URLs use localhost; the token exchange happens

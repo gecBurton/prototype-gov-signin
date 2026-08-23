@@ -8,7 +8,6 @@ from users.views import (
     ApplicationRegistration,
     ApplicationSecretRegenerate,
     ApplicationUpdate,
-    DiscoveryInfoView,
     HydraConsentView,
     HydraLoginView,
     HydraLogoutView,
@@ -67,15 +66,14 @@ management_urlpatterns = [
 # redirecting the user's browser here with a challenge id (see
 # HYDRA_ADMIN_URL/URLS_LOGIN/URLS_CONSENT/URLS_LOGOUT in settings and
 # docker-compose.yml). These replace django-oauth-toolkit's /o/authorize/.
+#
+# There is no discovery-document route here: relying parties are configured
+# with Hydra's own endpoint URLs directly (see docker-compose.yml's Grafana
+# config), and Hydra serves its own /.well-known/openid-configuration.
 hydra_urlpatterns = [
     path("login/", HydraLoginView.as_view(), name="hydra-login"),
     path("consent/", HydraConsentView.as_view(), name="hydra-consent"),
     path("logout/", HydraLogoutView.as_view(), name="hydra-logout"),
-    path(
-        ".well-known/openid-configuration",
-        DiscoveryInfoView.as_view(),
-        name="oidc-connect-discovery-info",
-    ),
 ]
 
 urlpatterns = [
