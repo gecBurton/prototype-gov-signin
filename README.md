@@ -10,6 +10,68 @@ Built on two systems that each own one half of the authentication picture: Djang
 
 ---
 
+## Architecture: Django vs Hydra
+
+Neither side trusts the other's data model. Hydra knows nothing about Teams, email domains, or this project's business rules. Django knows nothing about token signing, client secrets, or OAuth2 protocol correctness. The split:
+
+| | Django (`iam`) | Ory Hydra |
+|---|---|---|
+| **Owns** | Authentication (who is this person), authorization (may they proceed), business data (Teams, domains, application metadata), the audit log | Token issuance, signing keys, the OAuth2/OIDC endpoints, the client registry, login/consent/logout session state |
+| **Has no idea about** | How to sign a token, or a client secret's lifecycle | Users, teams, domains, or any of this project's rules |
+| **Talks to the relying party** | Never — Grafana never sends a request to Django | Directly — `/oauth2/auth`, `/oauth2/token`, `/userinfo` |
+| **Talks to the other side via** | Hydra's **admin API** (`HYDRA_ADMIN_URL`) — to accept/reject a login or consent, and to manage clients | Browser **redirects** carrying a `login_challenge`/`consent_challenge`/`logout_challenge` — never calls Django's admin API |
+
+The admin API is the trust boundary: whoever can reach `HYDRA_ADMIN_URL` can accept a login as any user, so it is never exposed outside the deployment network (see `docker-compose.yml`).
+
+### Sequence: a user signing in to Grafana
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Grafana as Grafana<br/>(relying party)
+    participant Hydra as Ory Hydra<br/>(protocol engine)
+    participant Django as Django (iam)<br/>(decision maker)
+    participant allauth as django-allauth<br/>(login-by-code / Google)
+
+    User->>Grafana: Visit Grafana
+    Grafana->>Hydra: Redirect to /oauth2/auth?client_id=grafana&...
+    Note over Hydra: Hydra has no session for this user.<br/>It has no idea who they are.
+    Hydra->>Django: Redirect to /o/login/?login_challenge=X
+    Django->>Hydra: GET admin API: fetch login request X<br/>(includes the client's metadata)
+
+    alt user not yet authenticated
+        Django->>allauth: Redirect to /accounts/login/?next=...
+        User->>allauth: Complete email-code or Google login
+        allauth->>Django: Authenticated, redirected back
+    end
+
+    Note over Django: Runs the domain check<br/>(is_signin_domain_allowed,<br/>_is_domain_allowed) —<br/>Hydra has no concept of this.
+    Django->>Hydra: PUT admin API: accept login request X
+    Hydra->>Django: Redirect to /o/consent/?consent_challenge=Y
+
+    alt application requires explicit consent
+        Django->>User: Show consent screen
+        User->>Django: Approve
+    end
+
+    Django->>Hydra: PUT admin API: accept consent Y<br/>(asserts email, email_verified claims)
+    Django->>Django: Record SignInEvent (audit log)
+    Hydra->>Grafana: Redirect with authorization code
+    Grafana->>Hydra: POST /oauth2/token (exchange code)
+    Hydra->>Grafana: Access token + signed ID token
+    Grafana->>Hydra: GET /userinfo (bearer token)
+    Hydra->>Grafana: User claims
+    Grafana->>User: Signed in
+```
+
+Three things worth noting about this flow:
+
+- **Django never sees a token, and Hydra never sees a Team.** The only data that crosses the boundary is the challenge IDs (opaque, short-lived) and the claims Django hands Hydra to put in the ID token (`email`, `email_verified`, `sub`).
+- **The domain check runs on every login-challenge**, not just once — so a user who's authenticated to Django (has a session) but whose team's allowed domains have since changed is re-checked each time they try to reach an application, at step "Runs the domain check" above.
+- **Hydra's defaults are slightly broader than what this deployment supports** (it will accept `plain` PKCE, and its discovery document lists grant/response types this app never issues). Django narrows this at two points: `_reject_weak_pkce` rejects `plain` at the login-challenge step, and `DiscoveryInfoView` trims the proxied discovery document — see [Ory Hydra](#ory-hydra--how-other-services-authenticate-their-users) below.
+
+---
+
 ## django-allauth — how users log in to *this* service
 
 [django-allauth](https://github.com/pennersr/django-allauth) handles the inbound side: getting a human being authenticated into the IAM service itself.
