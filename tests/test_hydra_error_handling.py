@@ -9,7 +9,6 @@ behaviour, not an oversight.
 """
 
 import pytest
-
 from users import hydra
 
 
