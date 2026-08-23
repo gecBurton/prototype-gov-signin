@@ -33,10 +33,9 @@ def _validate_https_uris(value, field_label):
 
 
 class ApplicationForm(forms.Form):
-    """Create/update form for an OAuth application (an Ory Hydra client).
+    """Create/update form for an OAuth application (a Hydra client).
 
-    No backing Django model — an Application is a Hydra client, fetched and
-    saved via users.hydra.
+    No backing Django model — fetched/saved via users.hydra.
     """
 
     name = forms.CharField(label="Name", max_length=255)
@@ -88,7 +87,7 @@ class ApplicationForm(forms.Form):
     )
 
     def __init__(self, *args, application=None, **kwargs):
-        """``application`` is a users.hydra.Application to seed initial values from."""
+        """``application``: a users.hydra.Application to seed initial values from."""
         if application is not None and "initial" not in kwargs:
             kwargs["initial"] = {
                 "name": application.name,
@@ -127,7 +126,7 @@ class ApplicationForm(forms.Form):
         return value
 
     def to_hydra_kwargs(self) -> dict:
-        """The cleaned data, shaped for users.hydra.create_application/update_application."""
+        """Cleaned data shaped for users.hydra.create_application/update_application."""
         data = self.cleaned_data
         return {
             "name": data["name"],
@@ -145,19 +144,13 @@ class ApplicationForm(forms.Form):
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
     """Login-by-code that enrols unknown email addresses instead of bouncing them.
 
-    Makes the account exist *before* delegating to allauth, so its own
-    lookup finds the user and sends a code — no need to touch allauth's
-    private ``self._user``. The address is created unverified; allauth marks
-    it verified once the emailed code is confirmed.
+    Creates the account before delegating to allauth, so allauth's own
+    lookup finds it. Created unverified; allauth verifies on code confirm.
     """
 
     def clean_email(self) -> str:
         email = self.cleaned_data.get("email")
         if email:
-            # Global sign-in gate: refuse domains no team would admit, before
-            # creating any account row (see users.domains.is_signin_domain_allowed).
-            # Applies to returning users too — this gates signing in, not just
-            # first enrolment.
             if not is_signin_domain_allowed(email):
                 raise ValidationError("Your email is not allowed to sign in.")
             user, created = User.objects.get_or_create(email=email)
@@ -169,5 +162,4 @@ class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
                 email=email,
                 defaults={"primary": True, "verified": False},
             )
-        # The account now exists, so allauth's lookup sets self._user itself.
         return super().clean_email()

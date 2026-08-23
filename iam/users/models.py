@@ -9,9 +9,8 @@ from users import hydra
 class Team(models.Model):
     """A group of users who jointly own OAuth applications.
 
-    Applications themselves are not a Django model: each is an OAuth2 client
-    registered in Hydra, owned by this team's id (Hydra's ``owner`` field).
-    See users.hydra for the client CRUD helpers.
+    Applications aren't a Django model: each is a Hydra client owned by
+    this team's id. See users.hydra.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -35,9 +34,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("The email must be set")
         user = self.model(email=self.normalize_email(email), **extra_fields)
-        # This service has no passwords: every account authenticates via email
-        # login-code or Google. Any password argument (e.g. from
-        # createsuperuser) is intentionally ignored.
+        # No passwords: every account authenticates via email code or Google.
         user.set_unusable_password()
         user.save(using=self._db)
         return user

@@ -320,9 +320,8 @@ class TeamMemberRemove(TeamMixin, View):
                 },
             )
         user_to_remove.teams.remove(self.team)
-        # Membership doesn't itself grant access (that's domain/
-        # additional_emails-based), but often implies it — revoke this
-        # user's existing tokens for the team's applications regardless.
+        # Membership doesn't itself grant access, but often implies it —
+        # revoke this user's tokens for the team's applications regardless.
         hydra.revoke_team_consent(user_id=user_to_remove.pk, team_id=self.team.pk)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
@@ -353,15 +352,10 @@ class TeamDomainRemove(TeamMixin, View):
         )
         domain_value = domain.domain
         domain.delete()
-        # Revoke tokens for users this actually affects: matched the removed
-        # domain, and no other remaining team domain still covers them.
-        # icontains is a coarse pre-filter only, not the security boundary —
-        # it just narrows candidates for the exact suffix check below (e.g.
-        # "example.com" matches "user@example.com" but also candidates like
-        # "user@notexample.com" that the suffix check then correctly excludes).
-        # It's safe here because it can only produce false positives (extra
-        # candidates re-checked below), never false negatives, since every
-        # real match must contain the domain string somewhere in the email.
+        # Revoke tokens for users this affects: matched the removed domain,
+        # and no other remaining team domain still covers them. icontains is
+        # just a coarse pre-filter (can only over-match, never under-match);
+        # the exact suffix check below is the real security boundary.
         User = get_user_model()
         candidates = User.objects.filter(email__icontains=domain_value)
         for user in candidates:
@@ -393,12 +387,10 @@ def _parse_date_parts(params, prefix):
 
 
 def _is_domain_allowed(application, email):
-    """Whether ``email`` may sign in to ``application`` (a users.hydra.Application).
+    """Whether ``email`` may sign in to ``application``.
 
-    Individually allow-listed addresses (VIPs, pentesters) bypass the team's
-    domain restriction. No domains means no one is admitted by domain (fail
-    closed): a domain must be added explicitly, so leaving the list empty
-    never opens access to all.
+    additional_emails bypasses the domain check. No domains means no one
+    is admitted (fail closed).
     """
     if email.lower() in application.additional_email_list:
         return True
@@ -409,10 +401,7 @@ def _is_domain_allowed(application, email):
 
 
 class HydraLoginView(LoginRequiredMixin, View):
-    """Hydra's login-challenge endpoint. By the time this runs, the user is
-    already authenticated via allauth (LoginRequiredMixin sends them through
-    email-code/Google first). All that's left is the domain check.
-    """
+    """Hydra's login-challenge endpoint: check the domain, accept or reject."""
 
     template_name = "oauth2_provider/authorization_denied.html"
 
@@ -439,10 +428,7 @@ class HydraLoginView(LoginRequiredMixin, View):
 
 
 class HydraConsentView(LoginRequiredMixin, View):
-    """Hydra's consent-challenge endpoint. Accepts immediately for
-    applications with skip_authorization set; otherwise shows a consent
-    screen.
-    """
+    """Hydra's consent-challenge endpoint."""
 
     template_name = "oauth2_provider/authorize.html"
 
@@ -497,12 +483,8 @@ class HydraConsentView(LoginRequiredMixin, View):
 
 
 class HydraLogoutView(View):
-    """Hydra's RP-initiated-logout endpoint.
-
-    The challenge is carried as a hidden form field rather than stashed in
-    the session: a session value would be overwritten if the user opened
-    this confirmation in a second tab, or navigated away and back, breaking
-    whichever tab's POST ran second.
+    """Hydra's RP-initiated-logout endpoint. Challenge is a hidden form
+    field, not session-stored, so a second tab can't clobber the first.
     """
 
     template_name = "oauth2_provider/logout_confirm.html"
