@@ -13,6 +13,7 @@ import uuid
 import requests
 from allauth.account.models import EmailAddress
 from django.conf import settings
+from django.core.cache import cache
 
 # PKCE strictness (S256-only, mandatory) is enforced by Hydra itself via
 # OAUTH2_PKCE_ENFORCED=true (docker-compose.yml), not by this app.
@@ -142,6 +143,7 @@ def create_application(
     if client_secret is not None:
         payload["client_secret"] = client_secret
     response = _request("POST", "/admin/clients", json=payload)
+    _invalidate_all_applications_cache()
     return Application._from_hydra(response.json())
 
 
@@ -154,36 +156,89 @@ def get_application(client_id: str) -> Application | None:
     return Application._from_hydra(response.json())
 
 
-def _list_all_applications() -> list[Application]:
-    """Every application in Hydra, active or not, regardless of owner.
+def _list_clients(**params) -> list[dict]:
+    """Every client matching ``params``, following Hydra's page_token cursor.
 
-    Hydra has no owner filter, so callers fetch everything and filter
-    client-side. Fetches one page of up to 500 and does not follow Hydra's
-    page_token cursor, so beyond 500 clients this silently truncates. Hot
-    path for every sign-in and every directory page view — fine at
-    prototype scale, needs real pagination or caching beyond that.
+    Hydra's list endpoint is paginated (RFC 5988 Link header); this follows
+    it to completion rather than fetching a single page, so results are
+    correct at any client count. Filters (owner, client_name) are applied
+    server-side by Hydra, not client-side here.
+
+    Stops as soon as a page returns zero items, rather than trusting the
+    presence of a "next" Link header alone: confirmed against a live Hydra
+    instance that it can still emit rel="next" on an empty page (e.g. for an
+    owner with zero clients), which would otherwise loop forever. Also capped
+    at 1000 pages as a defensive backstop against any other pagination quirk.
     """
-    response = _request("GET", "/admin/clients", params={"page_size": 500})
-    return [Application._from_hydra(c) for c in response.json()]
+    clients = []
+    params = {"page_size": 500, **params}
+    path = "/admin/clients"
+    for _ in range(1000):
+        if not path:
+            break
+        response = _request("GET", path, params=params)
+        page = response.json()
+        if not page:
+            break
+        clients.extend(page)
+        next_url = response.links.get("next", {}).get("url")
+        if not next_url:
+            break
+        path, params = next_url, {}  # next_url already carries its own query
+    return clients
 
 
 def list_team_applications(
     team_id, *, include_inactive: bool = False
 ) -> list[Application]:
-    """Every application owned by a team, alphabetical by name."""
-    apps = [a for a in _list_all_applications() if a.team_id == str(team_id)]
+    """Every application owned by a team, alphabetical by name.
+
+    Filtered server-side by Hydra's owner param, so this scales with the
+    team's own client count, not the total across every team.
+    """
+    apps = [Application._from_hydra(c) for c in _list_clients(owner=str(team_id))]
     if not include_inactive:
         apps = [a for a in apps if a.is_active]
     return sorted(apps, key=lambda a: a.name.lower())
 
 
+_ALL_APPLICATIONS_CACHE_KEY = "hydra:all_active_applications"
+_ALL_APPLICATIONS_CACHE_TTL = 30  # seconds
+
+
 def list_all_active_applications() -> list[Application]:
     """Every active application across every team.
 
-    Used by the global sign-in gate (users.domains) and the applications
-    directory (users.views.ApplicationDirectory).
+    No owner filter applies here — this genuinely needs every application,
+    for the global sign-in gate's additional_emails check (users.domains)
+    and the applications directory (users.views.ApplicationDirectory). At
+    high client counts this is an expensive full-table scan of Hydra's
+    clients, done on every sign-in, so the result is cached for
+    _ALL_APPLICATIONS_CACHE_TTL seconds — a new application or a newly-added
+    additional_email can take up to that long to take effect here (domain-
+    based access is unaffected; that's a local, always-fresh Postgres query).
+    Writes (create/update/soft_delete) invalidate the cache immediately, so
+    the delay only matters if two different processes race a write and a
+    read within the TTL window.
+
+    Uses Django's cache framework (settings.CACHES), which defaults to a
+    per-process in-memory cache: fine for one worker process, but with
+    multiple worker processes each has its own copy, so a write from worker
+    A won't invalidate worker B's cache until its TTL expires. Configure a
+    shared backend (e.g. Redis) in CACHES if running more than one worker.
     """
-    return [a for a in _list_all_applications() if a.is_active]
+    cached = cache.get(_ALL_APPLICATIONS_CACHE_KEY)
+    if cached is not None:
+        return cached
+    apps = [
+        a for a in (Application._from_hydra(c) for c in _list_clients()) if a.is_active
+    ]
+    cache.set(_ALL_APPLICATIONS_CACHE_KEY, apps, _ALL_APPLICATIONS_CACHE_TTL)
+    return apps
+
+
+def _invalidate_all_applications_cache() -> None:
+    cache.delete(_ALL_APPLICATIONS_CACHE_KEY)
 
 
 def update_application(client_id: str, **kwargs) -> Application:
@@ -194,6 +249,7 @@ def update_application(client_id: str, **kwargs) -> Application:
     response = _request(
         "PUT", f"/admin/clients/{client_id}", json=merged._client_fields()
     )
+    _invalidate_all_applications_cache()
     return Application._from_hydra(response.json())
 
 

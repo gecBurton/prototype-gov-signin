@@ -103,8 +103,11 @@ class FakeHydra:
     def delete_client(self, client_id):
         self.clients.pop(client_id, None)
 
-    def list_clients(self):
-        return [self.get_client(cid) for cid in self.clients]
+    def list_clients(self, owner=None):
+        clients = [self.get_client(cid) for cid in self.clients]
+        if owner is not None:
+            clients = [c for c in clients if c.get("owner") == owner]
+        return clients
 
     # -- login/consent/logout challenges ------------------------------------
 
@@ -127,6 +130,18 @@ class FakeHydra:
             "skip": False,
         }
         return challenge
+
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """list_all_active_applications caches across requests (see users.hydra);
+    clear it between tests so one test's cached result can't leak into
+    another's."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -177,7 +192,8 @@ def fake_hydra(request):
             return None
 
         def _clients_list(req, ctx):
-            return hydra.list_clients()
+            owner = req.qs.get("owner", [None])[0]
+            return hydra.list_clients(owner=owner)
 
         def _login_get(req, ctx):
             challenge = req.qs.get("login_challenge", [""])[0]
