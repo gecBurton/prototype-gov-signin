@@ -42,8 +42,7 @@ class TeamApplicationMixin(TeamMixin):
     @cached_property
     def application(self):
         app = hydra.get_application(self.kwargs[self.application_url_kwarg])
-        # Not found, belongs to a different team, or soft-deleted: all 404,
-        # matching the previous get_queryset()-based scoping.
+        # Not found, belongs to a different team, or soft-deleted: all 404.
         if app is None or app.team_id != str(self.team.pk) or not app.is_active:
             raise Http404("Unknown application")
         return app
@@ -134,8 +133,7 @@ class ApplicationDelete(TeamApplicationMixin, View):
 
     def post(self, request, *args, **kwargs):
         # Soft delete: hide the application rather than removing it from
-        # Hydra, so its credentials and sign-in history are preserved and the
-        # action can be undone (by an admin, via Hydra's admin API directly).
+        # Hydra, preserving its credentials and sign-in history.
         hydra.soft_delete(self.application.client_id)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
@@ -149,12 +147,7 @@ class TeamList(LoginRequiredMixin, ListView):
 
 
 class PaginationMixin:
-    """Add GOV.UK-style page numbers to a paginated ListView.
-
-    Exposes ``page_range`` (page numbers with Paginator.ELLIPSIS standing in for
-    gaps — the GOV.UK pattern: first, …, neighbours, …, last) and
-    ``page_ellipsis`` so the shared pagination partial can render the gaps.
-    """
+    """Adds GOV.UK-style page numbers and elision to a paginated ListView."""
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -164,9 +157,7 @@ class PaginationMixin:
                 page_obj.number, on_each_side=1, on_ends=1
             )
             context["page_ellipsis"] = Paginator.ELLIPSIS
-        # Everything in the URL except the page number, so the pagination links
-        # carry the current filters forward instead of resetting to page 1's
-        # unfiltered view.
+        # The current filters, minus page, so pagination links carry them forward.
         query = self.request.GET.copy()
         query.pop("page", None)
         context["filter_query"] = query.urlencode()
@@ -174,20 +165,10 @@ class PaginationMixin:
 
 
 class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, TemplateView):
-    """A directory of every listed application, for any signed-in user.
-
-    Every listed application is shown (a catalogue of what exists), each tagged
-    with whether the viewer can actually sign in to it — using the same domain
-    check the authorize endpoint enforces (_is_domain_allowed), so the tag never
-    disagrees with what happens on click. Soft-deleted (is_active=False) and
-    opted-out (listed=False) applications are excluded entirely.
-
-    Unlike the previous SQL-backed version, application data comes from
-    Hydra's admin API: there is no database table to filter/annotate/paginate
-    in SQL, so this fetches every listed+active application and paginates in
-    Python. Fine at the scale a handful of teams' self-registered apps implies;
-    would need a different approach (e.g. a local read-through cache) if the
-    number of registered applications ever grew large.
+    """A directory of every listed application, tagged with whether the
+    viewer can sign in to it. Application data comes from Hydra's admin
+    API (no database table), so this fetches everything and paginates in
+    Python — fine at this scale.
     """
 
     template_name = "oauth2_provider/application_directory.html"
@@ -241,15 +222,8 @@ def _teams_with_matching_domain(suffixes: set[str]) -> set[str]:
 
 
 class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
-    """Sign-in history relevant to the viewer.
-
-    Shows two kinds of SignInEvent: those for an application the viewer manages
-    (they belong to its owning team — the same membership that gates the team
-    admin pages), and the viewer's own sign-ins anywhere. So a team member sees
-    who is using their applications, while an end user who manages nothing still
-    sees their own login activity. Most recent first, paginated; soft-deleted
-    applications keep their history and still appear (the event stores its own
-    application_name/team snapshot, since Hydra is not queried here).
+    """Sign-in history relevant to the viewer: events for an application
+    they manage, plus their own sign-ins anywhere.
     """
 
     template_name = "oauth2_provider/sign_in_log.html"
@@ -346,11 +320,9 @@ class TeamMemberRemove(TeamMixin, View):
                 },
             )
         user_to_remove.teams.remove(self.team)
-        # Being a team member does not, on its own, grant access to the
-        # team's applications (that's governed by email domain/
-        # additional_emails) — but membership commonly implies domain
-        # membership too, so revoke this user's existing tokens for the
-        # team's applications rather than leaving them valid until expiry.
+        # Membership doesn't itself grant access (that's domain/
+        # additional_emails-based), but often implies it — revoke this
+        # user's existing tokens for the team's applications regardless.
         hydra.revoke_team_consent(user_id=user_to_remove.pk, team_id=self.team.pk)
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
@@ -381,14 +353,8 @@ class TeamDomainRemove(TeamMixin, View):
         )
         domain_value = domain.domain
         domain.delete()
-        # Revoke tokens for every user this removal actually affects: those
-        # whose email matched the removed domain and don't match any of the
-        # team's remaining domains (so removing one of several overlapping
-        # domains does not needlessly revoke access that another domain
-        # still grants). The icontains filter is just a coarse narrowing —
-        # correctness comes from the exact label-boundary suffix check below
-        # (see users.domains.email_domain_suffixes), matching the same rule
-        # the login-challenge view enforces.
+        # Revoke tokens for users this actually affects: matched the removed
+        # domain, and no other remaining team domain still covers them.
         User = get_user_model()
         candidates = User.objects.filter(email__icontains=domain_value)
         for user in candidates:
@@ -436,21 +402,9 @@ def _is_domain_allowed(application, email):
 
 
 class HydraLoginView(LoginRequiredMixin, View):
-    """The Hydra login-challenge endpoint (``/urls/login`` in Hydra's config).
-
-    By the time this view runs, the user has already authenticated to this
-    service via allauth (LoginRequiredMixin sends them through the normal
-    email-code/Google flow first, preserving ?login_challenge= via ?next=).
-    All that is left to decide is: does this user's email domain admit the
-    application making the request? If so, accept the Hydra login request
-    (immediately — there is no separate "log in" step here, since allauth
-    already established who the user is); if not, reject it with a 403-style
-    page, mirroring the previous AuthorizationView._check_domain behaviour.
-
-    PKCE correctness (rejecting a missing or weak ``plain`` challenge) is
-    enforced by Hydra itself (``OAUTH2_PKCE_ENFORCED=true``, see
-    docker-compose.yml) at token exchange — this view does not need to check
-    it separately.
+    """Hydra's login-challenge endpoint. By the time this runs, the user is
+    already authenticated via allauth (LoginRequiredMixin sends them through
+    email-code/Google first). All that's left is the domain check.
     """
 
     template_name = "oauth2_provider/authorization_denied.html"
@@ -478,14 +432,9 @@ class HydraLoginView(LoginRequiredMixin, View):
 
 
 class HydraConsentView(LoginRequiredMixin, View):
-    """The Hydra consent-challenge endpoint (``/urls/consent``).
-
-    Every application this service registers is created with
-    ``skip_consent`` following the application's own ``skip_authorization``
-    setting, so this view's job is mostly to accept immediately and record
-    the SignInEvent — but it still renders an explicit consent screen for
-    applications that have not opted into skipping it, matching the previous
-    AuthorizationView/authorize.html behaviour.
+    """Hydra's consent-challenge endpoint. Accepts immediately for
+    applications with skip_authorization set; otherwise shows a consent
+    screen.
     """
 
     template_name = "oauth2_provider/authorize.html"
@@ -541,7 +490,7 @@ class HydraConsentView(LoginRequiredMixin, View):
 
 
 class HydraLogoutView(View):
-    """The Hydra RP-initiated-logout endpoint (``/urls/logout``)."""
+    """Hydra's RP-initiated-logout endpoint."""
 
     template_name = "oauth2_provider/logout_confirm.html"
 

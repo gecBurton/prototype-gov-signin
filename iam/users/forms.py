@@ -35,12 +35,8 @@ def _validate_https_uris(value, field_label):
 class ApplicationForm(forms.Form):
     """Create/update form for an OAuth application (an Ory Hydra client).
 
-    Unlike a ModelForm, there is no backing Django model — an Application is a
-    Hydra client, fetched and saved via users.hydra. The field set mirrors what
-    the previous django-oauth-toolkit-backed form exposed, minus the fields
-    that no longer make sense now Hydra owns the client (client_type is
-    implied: every application this service creates is confidential,
-    authorization-code-only).
+    No backing Django model — an Application is a Hydra client, fetched and
+    saved via users.hydra.
     """
 
     name = forms.CharField(label="Name", max_length=255)
@@ -149,24 +145,10 @@ class ApplicationForm(forms.Form):
 class AutoEnrollRequestLoginCodeForm(RequestLoginCodeForm):
     """Login-by-code that enrols unknown email addresses instead of bouncing them.
 
-    By default allauth's clean_email finds no account for an unknown address,
-    leaving it to send an enumeration-safe "no account" mail. We make the
-    account exist *before* delegating to allauth: its own lookup then finds the
-    user and sends a login code, with no need to touch allauth's private
-    ``self._user``. The only coupling left is the supported one — subclassing
-    the configured RequestLoginCodeForm and calling super().
-
-    The address is created unverified; allauth marks it verified once the
-    emailed code is confirmed, which is what satisfies
-    ACCOUNT_EMAIL_VERIFICATION="mandatory". An EmailAddress row is also ensured
-    for any pre-existing user that lacks one (e.g. seed- or admin-created
-    accounts), so confirming the code can verify it.
-
-    Field validation has already run by the time clean_email is called, so
-    self.cleaned_data["email"] is a valid, normalised address. Creating the
-    account here (before super()'s rate-limit check) means an address rejected
-    by the per-IP limit can still leave an unverified, unusable-password row;
-    that is an accepted trade-off (see ACCOUNT_RATE_LIMITS in settings.py).
+    Makes the account exist *before* delegating to allauth, so its own
+    lookup finds the user and sends a code — no need to touch allauth's
+    private ``self._user``. The address is created unverified; allauth marks
+    it verified once the emailed code is confirmed.
     """
 
     def clean_email(self) -> str:

@@ -119,12 +119,10 @@ class AllowedEmailDomain(models.Model):
 class SignInEvent(models.Model):
     """One row per successful sign-in: a user authorising an application.
 
-    Written when Hydra's consent step is accepted (including the
-    skip-consent auto-approve path). Applications live in Hydra, not in this
-    database, so the application is referenced by its Hydra client_id and a
-    denormalised name/team snapshot — not a foreign key — meaning history
-    survives even if the client is later deleted from Hydra entirely (soft
-    deletion is the norm, but this makes the log robust either way).
+    Applications live in Hydra, not this database, so the application is
+    referenced by its Hydra client_id and a denormalised name/team snapshot
+    rather than a foreign key — history survives even if the client is
+    later deleted from Hydra.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

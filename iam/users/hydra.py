@@ -1,15 +1,9 @@
-"""A thin client for Ory Hydra's admin API, plus the Application wrapper.
+"""Thin client for Ory Hydra's admin API, plus the Application wrapper.
 
 There is no local Django model for OAuth applications: Hydra's admin API is
-the single source of truth for clients. Team ownership is recorded on the
-Hydra client itself via the ``owner`` field (set to the team's UUID), and
-everything this project adds on top of a bare OAuth2 client — description,
-main app URL, the additional-emails allow-list, the listed/is_active flags —
-is stored in Hydra's free-form ``metadata`` field, fetched back on every read.
-
-This keeps exactly one place where a client's redirect URIs, secret hash and
-grant type live (Hydra), while still letting teams self-manage the extra,
-product-specific fields this service needs.
+the source of truth for clients. Team ownership is the client's ``owner``
+field; everything else this project adds (description, additional emails,
+listed/is_active) lives in Hydra's free-form ``metadata`` field.
 """
 
 from __future__ import annotations
@@ -21,11 +15,9 @@ import requests
 from allauth.account.models import EmailAddress
 from django.conf import settings
 
-# Every application this service creates is constrained to this shape: only
-# the authorization-code grant, only the "code" response type, and RS256
-# (Hydra's default asymmetric ID-token signing algorithm). PKCE strictness
-# (S256-only, and mandatory) is enforced by Hydra itself via
-# OAUTH2_PKCE_ENFORCED=true (see docker-compose.yml), not by this app.
+# Every application is constrained to this shape. PKCE strictness (S256-only,
+# mandatory) is enforced by Hydra itself via OAUTH2_PKCE_ENFORCED=true (see
+# docker-compose.yml), not by this app.
 _GRANT_TYPES = ["authorization_code", "refresh_token"]
 _RESPONSE_TYPES = ["code"]
 _SCOPE = "openid profile email"
@@ -52,10 +44,8 @@ def _request(method: str, path: str, **kwargs) -> requests.Response:
 class Application:
     """A Hydra OAuth2 client, decorated with this project's extra fields.
 
-    Wraps the JSON shape returned by Hydra's admin API. ``client_secret`` is
-    only ever populated by Hydra itself on creation or secret regeneration —
-    it is never stored or returned on ordinary reads (Hydra hashes it
-    server-side), matching the "shown exactly once" behaviour the UI relies on.
+    ``client_secret`` is only ever populated on creation or regeneration —
+    Hydra hashes it server-side, so it's never returned on ordinary reads.
     """
 
     client_id: str
@@ -109,12 +99,7 @@ class Application:
         }
 
     def _client_fields(self) -> dict:
-        """This application's Hydra-native fields, as a client payload.
-
-        Shared by create/update so the two payload-builders can't drift
-        apart; only ``client_id``/``client_secret`` (create-only) and
-        ``metadata`` (built from ``_metadata`` above) are layered on top.
-        """
+        """Hydra-native fields as a client payload; shared by create/update."""
         return {
             "client_name": self.name,
             "owner": str(self.team_id),
@@ -135,13 +120,8 @@ def create_application(
 ) -> Application:
     """Register a new OAuth2 client in Hydra, owned by ``team_id``.
 
-    ``fields`` are this project's extra Application fields (description,
-    additional_emails, listed, ... — see the Application dataclass); any
-    field not given falls back to its Application default.
-
     ``client_id``/``client_secret`` are normally left to Hydra to generate;
-    only seed data (the docker compose demo, tests) pins them to a known
-    value.
+    only seed data (the docker compose demo, tests) pins them.
     """
     draft = Application(
         client_id="",
@@ -171,10 +151,8 @@ def get_application(client_id: str) -> Application | None:
 def _list_all_applications() -> list[Application]:
     """Every application in Hydra, active or not, regardless of owner.
 
-    Hydra has no owner filter on its list endpoint, so both
-    list_team_applications and list_all_active_applications page through the
-    same full list and filter client-side. Fine at this scale; would need
-    paging (or a local index) if the number of clients ever grew large.
+    Hydra has no owner filter on its list endpoint, so this pages through the
+    full list and callers filter client-side.
     """
     response = _request("GET", "/admin/clients", params={"page_size": 500})
     return [Application._from_hydra(c) for c in response.json()]
@@ -193,9 +171,8 @@ def list_team_applications(
 def list_all_active_applications() -> list[Application]:
     """Every active application across every team.
 
-    Used by the global sign-in gate (users.domains.is_signin_domain_allowed)
-    to check the additional_emails bypass without knowing the team in advance,
-    and by the applications directory (users.views.ApplicationDirectory).
+    Used by the global sign-in gate (users.domains) and the applications
+    directory (users.views.ApplicationDirectory).
     """
     return [a for a in _list_all_applications() if a.is_active]
 
@@ -227,21 +204,17 @@ def _new_secret() -> str:
 def soft_delete(client_id: str) -> None:
     """Mark an application inactive without removing it from Hydra.
 
-    Preserves the client's credentials and sign-in history (SignInEvent keeps
-    its own denormalised record), matching the previous soft-delete behaviour.
+    Preserves credentials and sign-in history (SignInEvent keeps its own
+    denormalised record).
     """
     update_application(client_id, is_active=False)
 
 
 # ---------------------------------------------------------------------------
-# Login, consent and logout challenge flows.
-#
-# Hydra delegates authentication and consent entirely to this application:
-# when a relying party starts an OAuth2 flow, Hydra redirects the user's
-# browser here with a challenge id, and this app must fetch the challenge's
-# details, decide what to do, then call back into Hydra's admin API to accept
-# or reject it, which returns a further redirect_to URL to send the browser to
-# (either back into Hydra to continue the flow, or to the relying party).
+# Login, consent and logout challenges: Hydra redirects the browser here with
+# a challenge id and this app calls back into its admin API to accept/reject
+# it, which returns a redirect_to URL (either back into Hydra, or to the
+# relying party).
 # ---------------------------------------------------------------------------
 
 
@@ -255,8 +228,8 @@ def get_login_request(challenge: str) -> dict:
 
 
 def application_from_client(client: dict) -> Application:
-    """Build an Application from the ``client`` object embedded in a login
-    or consent request, avoiding a separate GET /admin/clients/{id} call."""
+    """Build an Application from the ``client`` embedded in a login/consent
+    request, avoiding a separate GET /admin/clients/{id} call."""
     return Application._from_hydra(client)
 
 
@@ -282,12 +255,9 @@ def get_consent_request(challenge: str) -> dict:
 def accept_consent(challenge: str, *, grant_scope: list[str], user) -> str:
     """Accept a consent request, asserting the user's email in the ID token.
 
-    ``email_verified`` reports the real verification state rather than
-    asserting True: a relying party trusts this claim to decide whether the
-    address is the user's. Login-by-code and Google both leave a verified
-    EmailAddress, so this is True in practice for every supported flow;
-    deriving it (instead of hardcoding) means a future unverified-login path
-    can never silently mint a "verified" identity.
+    ``email_verified`` reflects the real EmailAddress state rather than
+    hardcoding True, so a future unverified-login path can't mint a
+    "verified" identity.
     """
     email_verified = EmailAddress.objects.filter(
         user=user, email__iexact=user.email, verified=True
@@ -308,14 +278,9 @@ def accept_consent(challenge: str, *, grant_scope: list[str], user) -> str:
             "grant_scope": grant_scope,
             "grant_access_token_audience": [],
             "session": session,
-            # Not remembered: whether consent is shown again next time is
-            # governed entirely by the application's own skip_authorization
-            # setting (Hydra's client.skip_consent, checked in
-            # HydraConsentView.get), matching the previous behaviour where
-            # every visit showed the consent screen unless that flag was set.
-            # Without this, Hydra's own "remember" would silently keep
-            # skipping consent forever after the first grant, regardless of
-            # skip_authorization.
+            # Not remembered: whether consent is shown again is governed by
+            # the application's own skip_authorization setting, not Hydra's
+            # remember mechanism (see HydraConsentView.get).
             "remember": False,
         },
     )
@@ -351,27 +316,15 @@ def reject_logout(challenge: str) -> str:
 
 
 def revoke_consent(*, user_id, client_id) -> None:
-    """Revoke a user's consent grant for one application, invalidating its
-    already-issued access and refresh tokens immediately.
+    """Revoke a user's consent grant for one application.
 
-    Used when a user's access to a specific application changes underneath
-    them — a domain is removed from its team, or they're removed from the
-    team — so an existing token can't keep working past that point. Verified
-    directly against Hydra: revoking a client-scoped consent grant flips a
-    previously "active" access token to "active": false on introspection.
-
-    Login-session revocation is deliberately not done here and is
-    unnecessary: this app always accepts Hydra's login/consent requests with
-    ``remember=False`` (see accept_login/accept_consent), so Hydra re-issues
-    a fresh login-challenge — re-running the domain check in HydraLoginView —
-    on every single authorization request, even within the same browser
-    session. There is no stale Hydra-side "remembered" login to clear.
-
-    Scoped to one client (not every application the user can reach) so that
-    removing one team's domain, or one team's membership, does not also
-    revoke the user's unrelated access to other teams' applications. A 404
-    (no consent grant to revoke — the user never signed in to this
-    application) is not an error.
+    Immediately invalidates its already-issued access/refresh tokens
+    (confirmed via introspection). Login-session revocation isn't needed:
+    this app always accepts with ``remember=False``, so Hydra re-issues a
+    fresh login-challenge — re-running the domain check — on every
+    authorization request regardless. Scoped to one client so removing one
+    team's domain/membership doesn't touch unrelated access. A 404 (no grant
+    to revoke) is not an error.
     """
     response = requests.delete(
         _admin_url("/admin/oauth2/auth/sessions/consent"),
@@ -386,11 +339,6 @@ def revoke_consent(*, user_id, client_id) -> None:
 
 
 def revoke_team_consent(*, user_id, team_id) -> None:
-    """Revoke a user's consent for every application owned by a team.
-
-    A thin loop over revoke_consent for each of the team's active
-    applications — used by TeamDomainRemove and TeamMemberRemove, where the
-    access change is scoped to one team, not the user's access globally.
-    """
+    """Revoke a user's consent for every application owned by a team."""
     for application in list_team_applications(team_id):
         revoke_consent(user_id=user_id, client_id=application.client_id)

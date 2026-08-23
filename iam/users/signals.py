@@ -31,12 +31,8 @@ def sync_admin_status(sender, request, user, **kwargs):
 def block_team_deletion_with_applications(sender, instance, **kwargs):
     """Refuse to delete a team that still owns applications in Hydra.
 
-    Previously enforced by a database PROTECT constraint on Application.team
-    (django-oauth-toolkit's AbstractApplication). Applications now live in
-    Hydra, not this database, so there is no foreign key for the database to
-    enforce — this signal is the replacement, so a team's domain restrictions
-    (and the applications that depend on them) can never be silently orphaned
-    by deleting the team out from under them.
+    Applications aren't a local model, so there's no foreign key for the
+    database to enforce this with — this signal is the replacement.
     """
     if hydra.list_team_applications(instance.pk, include_inactive=True):
         raise ProtectedError(
