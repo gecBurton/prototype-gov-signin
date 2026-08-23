@@ -34,6 +34,9 @@ class FakeHydra:
         self.logout_requests = {}
         # (subject, client_id) pairs that revoke_consent has been called for.
         self.revoked_consents = set()
+        # Challenges passed to accept_logout/reject_logout, in call order.
+        self.accepted_logout_challenges = []
+        self.rejected_logout_challenges = []
 
     # -- clients ------------------------------------------------------------
 
@@ -223,6 +226,20 @@ def fake_hydra(request):
             ctx.status_code = 204
             return None
 
+        def _logout_accept(req, ctx):
+            challenge = req.qs.get("logout_challenge", [""])[0]
+            hydra.accepted_logout_challenges.append(challenge)
+            return {
+                "redirect_to": f"{admin_base}/fake-continue?flow=logout&challenge={challenge}"
+            }
+
+        def _logout_reject(req, ctx):
+            challenge = req.qs.get("logout_challenge", [""])[0]
+            hydra.rejected_logout_challenges.append(challenge)
+            return {
+                "redirect_to": f"{admin_base}/fake-denied?flow=logout&challenge={challenge}"
+            }
+
         m.post(f"{admin_base}/admin/clients", json=_clients_post)
         m.get(re.compile(rf"^{admin_base}/admin/clients(\?.*)?$"), json=_clients_list)
         m.get(re.compile(rf"^{admin_base}/admin/clients/[^/?]+$"), json=_clients_get)
@@ -246,6 +263,14 @@ def fake_hydra(request):
         m.put(
             f"{admin_base}/admin/oauth2/auth/requests/consent/reject",
             json=_consent_reject,
+        )
+        m.put(
+            f"{admin_base}/admin/oauth2/auth/requests/logout/accept",
+            json=_logout_accept,
+        )
+        m.put(
+            f"{admin_base}/admin/oauth2/auth/requests/logout/reject",
+            json=_logout_reject,
         )
         m.delete(
             f"{admin_base}/admin/oauth2/auth/sessions/consent",

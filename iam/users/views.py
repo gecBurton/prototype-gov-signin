@@ -355,6 +355,13 @@ class TeamDomainRemove(TeamMixin, View):
         domain.delete()
         # Revoke tokens for users this actually affects: matched the removed
         # domain, and no other remaining team domain still covers them.
+        # icontains is a coarse pre-filter only, not the security boundary —
+        # it just narrows candidates for the exact suffix check below (e.g.
+        # "example.com" matches "user@example.com" but also candidates like
+        # "user@notexample.com" that the suffix check then correctly excludes).
+        # It's safe here because it can only produce false positives (extra
+        # candidates re-checked below), never false negatives, since every
+        # real match must contain the domain string somewhere in the email.
         User = get_user_model()
         candidates = User.objects.filter(email__icontains=domain_value)
         for user in candidates:
@@ -490,7 +497,13 @@ class HydraConsentView(LoginRequiredMixin, View):
 
 
 class HydraLogoutView(View):
-    """Hydra's RP-initiated-logout endpoint."""
+    """Hydra's RP-initiated-logout endpoint.
+
+    The challenge is carried as a hidden form field rather than stashed in
+    the session: a session value would be overwritten if the user opened
+    this confirmation in a second tab, or navigated away and back, breaking
+    whichever tab's POST ran second.
+    """
 
     template_name = "oauth2_provider/logout_confirm.html"
 
@@ -498,11 +511,10 @@ class HydraLogoutView(View):
         challenge = request.GET.get("logout_challenge", "")
         if not challenge:
             return HttpResponseBadRequest("Missing logout_challenge.")
-        request.session["logout_challenge"] = challenge
-        return render(request, self.template_name, {})
+        return render(request, self.template_name, {"logout_challenge": challenge})
 
     def post(self, request, *args, **kwargs):
-        challenge = request.session.pop("logout_challenge", "")
+        challenge = request.POST.get("logout_challenge", "")
         if "allow" in request.POST:
             redirect_to = hydra.accept_logout(challenge)
         else:

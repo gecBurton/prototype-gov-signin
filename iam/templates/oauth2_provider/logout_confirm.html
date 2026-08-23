@@ -10,6 +10,7 @@
 
   <form id="logoutForm" method="post">
     {% csrf_token %}
+    <input type="hidden" name="logout_challenge" value="{{ logout_challenge }}">
 
     <div class="govuk-button-group">
       <button type="submit" name="allow" value="Logout" class="govuk-button" data-module="govuk-button">

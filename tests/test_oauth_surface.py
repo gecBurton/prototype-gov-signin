@@ -22,3 +22,28 @@ def test_logout_endpoint_shows_confirmation(client, db):
 
 def test_logout_missing_challenge_is_bad_request(client, db):
     assert client.get("/o/logout/").status_code == 400
+
+
+def test_logout_confirmation_carries_challenge_as_hidden_field(client, db):
+    """The challenge is echoed into the form, not stashed in the session —
+    see HydraLogoutView for why (avoids a second tab clobbering the first)."""
+    response = client.get("/o/logout/?logout_challenge=some-challenge")
+    assert b'name="logout_challenge" value="some-challenge"' in response.content
+
+
+def test_two_concurrent_logout_confirmations_do_not_clobber_each_other(
+    client, fake_hydra
+):
+    """Regression test: opening the logout confirmation twice (two tabs, or
+    navigate-away-and-back) must not make the first tab's POST use the
+    second tab's challenge — each POST carries its own challenge in the form.
+    """
+    client.get("/o/logout/?logout_challenge=first-challenge")
+    client.get("/o/logout/?logout_challenge=second-challenge")
+
+    response = client.post(
+        "/o/logout/", {"logout_challenge": "first-challenge", "allow": "Sign out"}
+    )
+
+    assert response.status_code == 302
+    assert fake_hydra.accepted_logout_challenges == ["first-challenge"]

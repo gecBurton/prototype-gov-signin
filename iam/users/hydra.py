@@ -24,7 +24,16 @@ _SCOPE = "openid profile email"
 
 
 class HydraAdminError(Exception):
-    """Raised when Hydra's admin API returns an unexpected response."""
+    """Raised when Hydra's admin API returns an unexpected response.
+
+    Callers reading a challenge (get_login_request/get_consent_request)
+    catch this and turn it into a 404 — nothing has been decided yet, so
+    failing soft is safe. Callers that decide a challenge's outcome
+    (accept_login, accept_consent, reject_consent, accept_logout,
+    reject_logout) deliberately do NOT catch this: letting it 500 is the
+    right behaviour, since silently swallowing a failed accept/reject could
+    misroute a sign-in or leave Hydra's challenge in an ambiguous state.
+    """
 
 
 def _admin_url(path: str) -> str:
@@ -32,6 +41,16 @@ def _admin_url(path: str) -> str:
 
 
 def _request(method: str, path: str, **kwargs) -> requests.Response:
+    """A single attempt against Hydra's admin API, no retry.
+
+    Every sign-in now has a hard dependency on this API being reachable
+    (the old django-oauth-toolkit setup only depended on the local
+    database). No retry/backoff here is deliberate for now: HYDRA_ADMIN_URL
+    is trusted/internal-only and a transient failure should surface loudly
+    (see HydraAdminError) rather than add latency retrying inside a
+    user-facing redirect — but this is worth revisiting if Hydra outages
+    turn out to be a real source of failed sign-ins in practice.
+    """
     response = requests.request(method, _admin_url(path), timeout=10, **kwargs)
     if response.status_code >= 400:
         raise HydraAdminError(
@@ -151,8 +170,16 @@ def get_application(client_id: str) -> Application | None:
 def _list_all_applications() -> list[Application]:
     """Every application in Hydra, active or not, regardless of owner.
 
-    Hydra has no owner filter on its list endpoint, so this pages through the
-    full list and callers filter client-side.
+    Hydra has no owner filter on its list endpoint, so callers fetch
+    everything and filter client-side.
+
+    Scaling limitation: fetches a single page of up to 500 clients and does
+    not follow Hydra's page_token cursor, so beyond 500 total clients this
+    silently truncates rather than erroring. This function is on the hot
+    path for every sign-in (is_signin_domain_allowed) and every directory
+    page view (ApplicationDirectory), so there's no caching either — fine at
+    prototype/demo scale; would need real pagination (or a local read-through
+    cache) before this could support more than a few hundred applications.
     """
     response = _request("GET", "/admin/clients", params={"page_size": 500})
     return [Application._from_hydra(c) for c in response.json()]
@@ -339,6 +366,12 @@ def revoke_consent(*, user_id, client_id) -> None:
 
 
 def revoke_team_consent(*, user_id, team_id) -> None:
-    """Revoke a user's consent for every application owned by a team."""
-    for application in list_team_applications(team_id):
+    """Revoke a user's consent for every application owned by a team.
+
+    Includes soft-deleted applications: a token issued before an app was
+    soft-deleted is still live until it expires, so a domain/membership
+    removal must still revoke it, even though the app itself now 404s for
+    new sign-ins.
+    """
+    for application in list_team_applications(team_id, include_inactive=True):
         revoke_consent(user_id=user_id, client_id=application.client_id)
