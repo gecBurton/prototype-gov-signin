@@ -56,6 +56,16 @@ if not DEBUG:
 
 # Application definition
 
+# "Sign in with Google" is only registered when real credentials are
+# configured. allauth's {% get_providers %} template tag (used on the login
+# page) lists every provider app in INSTALLED_APPS regardless of whether it
+# has a client_id/secret, so leaving this unconditional would render a
+# "Sign in with Google" button that 500s the moment someone clicks it in an
+# environment (e.g. a bare `make run`) where GOOGLE_CLIENT_ID/SECRET aren't set.
+GOOGLE_LOGIN_ENABLED = bool(
+    os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET")
+)
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -70,7 +80,7 @@ INSTALLED_APPS = [
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
-    "allauth.socialaccount.providers.google",
+    *(["allauth.socialaccount.providers.google"] if GOOGLE_LOGIN_ENABLED else []),
 ]
 
 SITE_ID = 1
