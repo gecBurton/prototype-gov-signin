@@ -9,6 +9,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Runs once, on first init of postgres_data, to create a second
+      # database for Hydra (see the file for why).
+      - ./docker/init-hydra-db.sql:/docker-entrypoint-initdb.d/init-hydra-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U iam"]
       interval: 5s
@@ -20,6 +23,41 @@ services:
     ports:
       - "1025:1025"   # SMTP
       - "8025:8025"   # Web UI + REST API
+
+  # Ory Hydra is the OAuth2/OIDC authorization server: it owns /oauth2/auth,
+  # /oauth2/token, /userinfo, /.well-known/jwks.json and token/session
+  # lifecycle. It has no user database of its own — it delegates every login,
+  # consent and logout decision to the iam service (HYDRA login/consent/
+  # logout URLs below), which is why iam depends on hydra rather than the
+  # other way around.
+  hydra-migrate:
+    image: oryd/hydra:v2.3.0
+    environment:
+      DSN: "postgres://iam:iam@db:5432/hydra?sslmode=disable"
+    entrypoint: ["hydra", "migrate", "sql", "-e", "--yes"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  hydra:
+    image: oryd/hydra:v2.3.0
+    entrypoint: ["hydra", "serve", "all", "--dev"]
+    environment:
+      DSN: "postgres://iam:iam@db:5432/hydra?sslmode=disable"
+      # The browser-facing issuer/endpoints use localhost; container-to-
+      # container admin calls (from iam) use the hydra:4445 service name —
+      # see HYDRA_ADMIN_URL/HYDRA_PUBLIC_URL on the iam service below.
+      URLS_SELF_ISSUER: "http://localhost:4444"
+      URLS_LOGIN: "http://localhost:8000/o/login/"
+      URLS_CONSENT: "http://localhost:8000/o/consent/"
+      URLS_LOGOUT: "http://localhost:8000/o/logout/"
+      SECRETS_SYSTEM: "insecure-dev-hydra-system-secret-32-chars-min"
+    ports:
+      - "4444:4444"   # public: authorize/token/jwks/userinfo
+      - "4445:4445"   # admin: client CRUD, login/consent/logout challenges
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
 
   iam:
     build: .
@@ -37,11 +75,10 @@ services:
         uv run python manage.py shell <<'PYEOF'
         from allauth.account.models import EmailAddress
         from django.contrib.auth import get_user_model
-        from oauth2_provider.models import get_application_model
+        from users import hydra
         from users.models import Team
 
         User = get_user_model()
-        Application = get_application_model()
 
         user, created = User.objects.get_or_create(email="demo@example.com")
         if created:
@@ -57,23 +94,21 @@ services:
         # on the domains it lists. Allow example.com so the demo user can sign in.
         team, _ = Team.objects.get_or_create(name="Demo")
         team.allowed_email_domains.get_or_create(domain="example.com")
-        Application.objects.update_or_create(
-            client_id="grafana",
-            defaults={
-                "name": "Grafana",
-                "client_type": Application.CLIENT_CONFIDENTIAL,
-                "redirect_uris": "http://localhost:3000/login/generic_oauth",
-                "client_secret": "grafana-secret",
-                "skip_authorization": True,
-                "team": team,
-            },
-        )
+
+        existing = [a for a in hydra.list_team_applications(team.pk) if a.name == "Grafana"]
+        if not existing:
+            hydra.create_application(
+                team_id=team.pk,
+                name="Grafana",
+                redirect_uris=["http://localhost:3000/login/generic_oauth"],
+                skip_authorization=True,
+                client_id="grafana",
+                client_secret="grafana-secret",
+            )
         PYEOF
         uv run python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
-    volumes:
-      - ./iam/oidc.key:/app/oidc.key:ro
     environment:
       DEBUG: "true"
       SECRET_KEY: "insecure-dev-key"
@@ -86,6 +121,12 @@ services:
       ADMIN_USERS: "demo@example.com"
       EMAIL_HOST: mailpit
       EMAIL_PORT: "1025"
+      # Container-to-container: iam calls Hydra's admin API directly, and
+      # proxies its discovery document from the public API (see
+      # users.views.DiscoveryInfoView). HYDRA_ADMIN_URL is never exposed
+      # outside this compose network.
+      HYDRA_ADMIN_URL: "http://hydra:4445"
+      HYDRA_PUBLIC_URL: "http://hydra:4444"
       # "Sign in with Google" is wired to the local Dex stand-in (see the dex
       # service), so the flow works without real Google credentials. The
       # browser-facing URLs use localhost; the token exchange happens
@@ -101,6 +142,8 @@ services:
       mailpit:
         condition: service_started
       dex:
+        condition: service_started
+      hydra:
         condition: service_started
 
   dex:
@@ -119,17 +162,25 @@ services:
       GF_SERVER_ROOT_URL: "http://localhost:3000"
       GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
       GF_AUTH_GENERIC_OAUTH_NAME: "IAM"
-      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
-      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "grafana-secret"
+      # Pointed at the real SSO service to verify it works end-to-end. The
+      # client_id/secret must be a client registered at that SSO service with
+      # http://localhost:3000/login/generic_oauth as an allowed redirect URI;
+      # supply them via the shell or .env (defaults are the demo values).
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "${SSO_CLIENT_ID:-grafana}"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "${SSO_CLIENT_SECRET:-grafana-secret}"
       GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
-      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "http://localhost:8000/o/authorize/"
-      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://iam:8000/o/token/"
-      GF_AUTH_GENERIC_OAUTH_API_URL: "http://iam:8000/o/userinfo/"
+      # Grafana talks to Hydra's public endpoints directly — iam is no longer
+      # the token issuer, only the login/consent decision-maker Hydra
+      # delegates to (see the hydra service above).
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "http://localhost:4444/oauth2/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "http://hydra:4444/oauth2/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "http://hydra:4444/userinfo"
       GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
       GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
       GF_AUTH_SIGNOUT_REDIRECT_URL: "http://localhost:8000/accounts/logout/"
     depends_on:
       - iam
+      - hydra
 
 volumes:
   postgres_data:

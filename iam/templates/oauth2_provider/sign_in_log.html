@@ -19,8 +19,8 @@
         <label class="govuk-label" for="application">Application</label>
         <select class="govuk-select govuk-!-width-full" id="application" name="application">
           <option value="">All applications</option>
-          {% for application in applications %}
-          <option value="{{ application.pk }}"{% if filters.application == application.pk|stringformat:'s' %} selected{% endif %}>{{ application.name }}</option>
+          {% for client_id, name in applications %}
+          <option value="{{ client_id }}"{% if filters.application == client_id %} selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -81,7 +81,7 @@
           <tr class="govuk-table__row">
             <td class="govuk-table__cell" style="white-space: nowrap">{{ event.created|date:"j M Y, H:i" }}</td>
             <td class="govuk-table__cell">{{ event.user.email }}</td>
-            <td class="govuk-table__cell">{{ event.application.name }}</td>
+            <td class="govuk-table__cell">{{ event.application_name }}</td>
           </tr>
           {% endfor %}
         </tbody>

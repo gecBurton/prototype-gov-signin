@@ -1,23 +1,18 @@
-import json
-import uuid
 from datetime import date
 from functools import cached_property
+from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Exists, OuterRef, Q
-from django.http import Http404, HttpResponseBadRequest
+from django.db.models import Q
+from django.http import Http404, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
-from django.views.generic import ListView
-from oauth2_provider.generators import generate_client_secret
-from oauth2_provider.models import get_application_model
-from oauth2_provider.views import application as base_views
-from oauth2_provider.views import base as oidc_base_views
-from oauth2_provider.views import oidc as oidc_views
+from django.views.generic import FormView, ListView, TemplateView
 
+from users import hydra
 from users.domains import email_domain_suffixes
 from users.forms import ApplicationForm
 from users.models import AllowedEmailDomain, SignInEvent
@@ -40,83 +35,110 @@ class TeamMixin(LoginRequiredMixin):
 
 
 class TeamApplicationMixin(TeamMixin):
-    """Scope application views to the team in the URL."""
+    """Scope application views to the team in the URL, resolving from Hydra."""
 
     team_url_kwarg = "team_pk"
+    application_url_kwarg = "pk"
 
-    def get_queryset(self):
-        # Soft-deleted (hidden) applications are excluded everywhere this is
-        # used: detail, update, delete and secret regeneration.
-        return get_application_model().objects.filter(team=self.team, is_active=True)
+    @cached_property
+    def application(self):
+        app = hydra.get_application(self.kwargs[self.application_url_kwarg])
+        # Not found, belongs to a different team, or soft-deleted: all 404,
+        # matching the previous get_queryset()-based scoping.
+        if app is None or app.team_id != str(self.team.pk) or not app.is_active:
+            raise Http404("Unknown application")
+        return app
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            team=self.team, application=self.application, **kwargs
+        )
+
+
+class ApplicationRegistration(TeamMixin, FormView):
+    template_name = "oauth2_provider/application_registration_form.html"
+    form_class = ApplicationForm
+    team_url_kwarg = "team_pk"
 
     def get_context_data(self, **kwargs):
         return super().get_context_data(team=self.team, **kwargs)
 
-
-class ApplicationFormMixin(TeamApplicationMixin):
-    def get_form_class(self):
-        return ApplicationForm
+    def form_valid(self, form):
+        application = hydra.create_application(
+            team_id=self.team.pk, **form.to_hydra_kwargs()
+        )
+        self.request.session[_RAW_SECRET_SESSION_KEY] = {
+            "application": application.client_id,
+            "secret": application.client_secret,
+        }
+        self._created = application
+        return super().form_valid(form)
 
     def get_success_url(self):
         return reverse(
             "oauth2_provider:detail",
-            kwargs={"team_pk": self.team.pk, "pk": self.object.pk},
+            kwargs={"team_pk": self.team.pk, "pk": self._created.client_id},
         )
 
 
-def _stash_raw_secret(request, application, raw_secret):
-    request.session[_RAW_SECRET_SESSION_KEY] = {
-        "application": str(application.pk),
-        "secret": raw_secret,
-    }
+class ApplicationDetail(TeamApplicationMixin, TemplateView):
+    template_name = "oauth2_provider/application_detail.html"
 
-
-class ApplicationRegistration(ApplicationFormMixin, base_views.ApplicationRegistration):
-    def form_valid(self, form):
-        form.instance.team = self.team
-        # Saving hashes the generated secret, so capture the raw value first.
-        raw_secret = form.instance.client_secret
-        response = super().form_valid(form)
-        _stash_raw_secret(self.request, self.object, raw_secret)
-        return response
-
-
-class ApplicationDetail(TeamApplicationMixin, base_views.ApplicationDetail):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         stashed = self.request.session.pop(_RAW_SECRET_SESSION_KEY, None)
-        if stashed and stashed["application"] == str(self.object.pk):
+        if stashed and stashed["application"] == self.application.client_id:
             context["raw_client_secret"] = stashed["secret"]
         return context
 
 
 class ApplicationSecretRegenerate(TeamApplicationMixin, View):
     def post(self, request, *args, **kwargs):
-        application = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
-        raw_secret = generate_client_secret()
-        application.client_secret = raw_secret
-        application.save()
-        _stash_raw_secret(request, application, raw_secret)
+        application = hydra.regenerate_secret(self.application.client_id)
+        request.session[_RAW_SECRET_SESSION_KEY] = {
+            "application": application.client_id,
+            "secret": application.client_secret,
+        }
         return redirect(
-            "oauth2_provider:detail", team_pk=self.team.pk, pk=application.pk
+            "oauth2_provider:detail", team_pk=self.team.pk, pk=application.client_id
         )
 
 
-class ApplicationUpdate(ApplicationFormMixin, base_views.ApplicationUpdate):
-    pass
+class ApplicationUpdate(TeamApplicationMixin, FormView):
+    template_name = "oauth2_provider/application_form.html"
+    form_class = ApplicationForm
 
-
-class ApplicationDelete(TeamApplicationMixin, base_views.ApplicationDelete):
-    def get_success_url(self):
-        return reverse("oauth2_provider:team", kwargs={"pk": self.team.pk})
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.request.method == "GET":
+            kwargs["application"] = self.application
+        return kwargs
 
     def form_valid(self, form):
-        # Soft delete: hide the application rather than removing the row, so its
-        # credentials and sign-in history are preserved and the action can be
-        # undone (by an admin). get_queryset already excludes hidden apps.
-        self.object.is_active = False
-        self.object.save(update_fields=["is_active"])
-        return redirect(self.get_success_url())
+        hydra.update_application(self.application.client_id, **form.to_hydra_kwargs())
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse(
+            "oauth2_provider:detail",
+            kwargs={"team_pk": self.team.pk, "pk": self.application.client_id},
+        )
+
+
+class ApplicationDelete(TeamApplicationMixin, View):
+    def get(self, request, *args, **kwargs):
+        return render(
+            request,
+            "oauth2_provider/application_confirm_delete.html",
+            {"team": self.team, "application": self.application},
+        )
+
+    def post(self, request, *args, **kwargs):
+        # Soft delete: hide the application rather than removing it from
+        # Hydra, so its credentials and sign-in history are preserved and the
+        # action can be undone (by an admin, via Hydra's admin API directly).
+        hydra.soft_delete(self.application.client_id)
+        return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
 class TeamList(LoginRequiredMixin, ListView):
@@ -152,7 +174,7 @@ class PaginationMixin:
         return context
 
 
-class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
+class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, TemplateView):
     """A directory of every listed application, for any signed-in user.
 
     Every listed application is shown (a catalogue of what exists), each tagged
@@ -160,48 +182,63 @@ class ApplicationDirectory(PaginationMixin, LoginRequiredMixin, ListView):
     check the authorize endpoint enforces (_is_domain_allowed), so the tag never
     disagrees with what happens on click. Soft-deleted (is_active=False) and
     opted-out (listed=False) applications are excluded entirely.
+
+    Unlike the previous SQL-backed version, application data comes from
+    Hydra's admin API: there is no database table to filter/annotate/paginate
+    in SQL, so this fetches every listed+active application and paginates in
+    Python. Fine at the scale a handful of teams' self-registered apps implies;
+    would need a different approach (e.g. a local read-through cache) if the
+    number of registered applications ever grew large.
     """
 
     template_name = "oauth2_provider/application_directory.html"
-    context_object_name = "applications"
     paginate_by = 20
 
-    def get_queryset(self):
-        applications = (
-            get_application_model()
-            .objects.filter(is_active=True, listed=True)
-            .order_by("name")
-        )
+    def _visible_applications(self):
+        apps = [app for app in hydra.list_all_active_applications() if app.listed]
         if search := self.request.GET.get("search", "").strip():
-            applications = applications.filter(
-                Q(name__icontains=search) | Q(description__icontains=search)
-            )
-        # The candidate domain suffixes depend only on the viewer's email (fixed
-        # per request), so access annotates as a correlated EXISTS: the team
-        # allows one of those suffixes. That keeps badging and the access-only
-        # filter in SQL, with normal LIMIT/OFFSET pagination and no per-app pass.
-        #
-        # The per-app additional_emails allowlist is deliberately NOT folded
-        # into this access badge: the badge reflects team-domain access alone.
-        # additional_emails is still fully enforced at the authorize endpoint
-        # and the global sign-in gate (users.domains).
-        suffixes = email_domain_suffixes(self.request.user.email)
-        applications = applications.annotate(
-            user_has_access=Exists(
-                AllowedEmailDomain.objects.filter(
-                    team=OuterRef("team"), domain__in=list(suffixes)
-                )
-            )
-        )
-        if self.request.GET.get("access_only"):
-            applications = applications.filter(user_has_access=True)
-        return applications
+            search = search.lower()
+            apps = [
+                app
+                for app in apps
+                if search in app.name.lower() or search in app.description.lower()
+            ]
+        apps.sort(key=lambda a: a.name.lower())
+        return apps
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["search"] = self.request.GET.get("search", "")
-        context["access_only"] = bool(self.request.GET.get("access_only"))
+        suffixes = email_domain_suffixes(self.request.user.email)
+        team_domains = _teams_with_matching_domain(suffixes)
+        apps = self._visible_applications()
+        for app in apps:
+            app.user_has_access = app.team_id in team_domains
+        if self.request.GET.get("access_only"):
+            apps = [app for app in apps if app.user_has_access]
+
+        paginator = Paginator(apps, self.paginate_by)
+        page_number = self.request.GET.get("page", 1)
+        page_obj = paginator.get_page(page_number)
+
+        context.update(
+            applications=page_obj.object_list,
+            page_obj=page_obj,
+            paginator=paginator,
+            is_paginated=page_obj.has_other_pages(),
+            search=self.request.GET.get("search", ""),
+            access_only=bool(self.request.GET.get("access_only")),
+        )
         return context
+
+
+def _teams_with_matching_domain(suffixes: set[str]) -> set[str]:
+    """The ids (as strings) of every team with a domain in ``suffixes``."""
+    return set(
+        str(team_id)
+        for team_id in AllowedEmailDomain.objects.filter(
+            domain__in=suffixes
+        ).values_list("team_id", flat=True)
+    )
 
 
 class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
@@ -212,10 +249,8 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
     admin pages), and the viewer's own sign-ins anywhere. So a team member sees
     who is using their applications, while an end user who manages nothing still
     sees their own login activity. Most recent first, paginated; soft-deleted
-    applications keep their history and still appear.
-
-    Filterable by application, user email and date; each filter is an optional
-    GET parameter so the filtered view is bookmarkable.
+    applications keep their history and still appear (the event stores its own
+    application_name/team snapshot, since Hydra is not queried here).
     """
 
     template_name = "oauth2_provider/sign_in_log.html"
@@ -225,32 +260,25 @@ class SignInLog(PaginationMixin, LoginRequiredMixin, ListView):
     def _visible_q(self):
         """Events for an app the viewer manages, or the viewer's own sign-ins."""
         user = self.request.user
-        return Q(application__team__in=user.teams.all()) | Q(user=user)
+        return Q(team__in=user.teams.all()) | Q(user=user)
 
     def _filterable_applications(self):
-        # Every application that can appear in the log: those the viewer manages,
-        # plus any they have personally signed in to. distinct() because the
-        # sign_in_events join can repeat an application.
-        user = self.request.user
-        return (
-            get_application_model()
-            .objects.filter(Q(team__in=user.teams.all()) | Q(sign_in_events__user=user))
-            .distinct()
-            .order_by("name")
-        )
+        """Every (client_id, name) pair that can appear in the log filter."""
+        events = SignInEvent.objects.filter(self._visible_q())
+        seen = {}
+        for client_id, name in events.values_list(
+            "application_client_id", "application_name"
+        ).distinct():
+            seen[client_id] = name
+        return sorted(seen.items(), key=lambda pair: pair[1].lower())
 
     def get_queryset(self):
-        # SignInEvent.Meta already orders by -created (most recent first).
-        events = SignInEvent.objects.filter(self._visible_q()).select_related(
-            "user", "application"
-        )
+        events = SignInEvent.objects.filter(self._visible_q()).select_related("user")
         params = self.request.GET
 
         application = params.get("application", "")
-        # An unknown/malformed id simply matches nothing (the visibility scope
-        # above already bounds what can be seen), so no leak is possible.
-        if application and _is_uuid(application):
-            events = events.filter(application_id=application)
+        if application:
+            events = events.filter(application_client_id=application)
         if email := params.get("user", "").strip():
             events = events.filter(user__email__icontains=email)
         if day := _parse_date_parts(params, "date"):
@@ -349,14 +377,6 @@ class TeamDomainRemove(TeamMixin, View):
         return redirect("oauth2_provider:team", pk=self.team.pk)
 
 
-def _is_uuid(value):
-    try:
-        uuid.UUID(value)
-    except ValueError:
-        return False
-    return True
-
-
 def _parse_date_parts(params, prefix):
     """Build a date from ``{prefix}_day/_month/_year`` GET params, or None.
 
@@ -376,31 +396,33 @@ def _parse_date_parts(params, prefix):
 
 
 def _is_domain_allowed(application, email):
-    # Individually allow-listed addresses (VIPs, pentesters) bypass the team's
-    # domain restriction.
+    """Whether ``email`` may sign in to ``application`` (a users.hydra.Application).
+
+    Individually allow-listed addresses (VIPs, pentesters) bypass the team's
+    domain restriction. No domains means no one is admitted by domain (fail
+    closed): a domain must be added explicitly, so leaving the list empty
+    never opens access to all.
+    """
     if email.lower() in application.additional_email_list:
         return True
-    # No domains means no one is admitted by domain (fail closed): a domain must
-    # be added explicitly, so leaving the list empty never opens access to all.
-    # Single-application check (the authorize endpoint), so a Python pass over
-    # .all() is fine; the directory builds the equivalent EXISTS in SQL instead.
     suffixes = email_domain_suffixes(email)
-    return any(
-        domain.domain in suffixes
-        for domain in application.team.allowed_email_domains.all()
-    )
+    return AllowedEmailDomain.objects.filter(
+        team_id=application.team_id, domain__in=suffixes
+    ).exists()
 
 
-def _reject_weak_pkce(params):
-    """Return a 400 if PKCE is used with anything other than S256, else None.
+def _reject_weak_pkce(login_request):
+    """Return a 400 response if the request used weak PKCE, else None.
 
-    The toolkit accepts the ``plain`` challenge method, which offers no
-    protection against authorization-code interception (the challenge equals
-    the verifier). Require S256 whenever a challenge is present so the only
-    PKCE method we accept matches what the discovery document advertises.
+    Hydra accepts the ``plain`` challenge method, which offers no protection
+    against authorization-code interception (the challenge equals the
+    verifier). Require S256 whenever a challenge is present. The
+    code_challenge/method live in the original relying-party request URL,
+    echoed back on the login request Hydra hands us.
     """
-    challenge = params.get("code_challenge")
-    method = params.get("code_challenge_method")
+    query = parse_qs(urlparse(login_request.get("request_url", "")).query)
+    challenge = query.get("code_challenge", [""])[0]
+    method = query.get("code_challenge_method", [""])[0]
     if challenge and method != "S256":
         return HttpResponseBadRequest(
             "Unsupported code_challenge_method; only S256 is allowed."
@@ -408,75 +430,135 @@ def _reject_weak_pkce(params):
     return None
 
 
-class AuthorizationView(oidc_base_views.AuthorizationView):
-    def _check_domain(self, request, client_id):
-        """Return a 403 response if the user's email domain is not whitelisted, else None.
+class HydraLoginView(LoginRequiredMixin, View):
+    """The Hydra login-challenge endpoint (``/urls/login`` in Hydra's config).
 
-        Raises Http404 if the application has been soft-deleted (hidden), so a
-        removed client can never sign anyone in.
-        """
-        try:
-            application = get_application_model().objects.get(client_id=client_id)
-        except get_application_model().DoesNotExist:
-            return None  # let the parent handle the invalid client_id
-        if not application.is_active:
-            raise Http404("Unknown client")
-        if not _is_domain_allowed(application, request.user.email):
-            return render(
-                request,
-                "oauth2_provider/authorization_denied.html",
-                {"application": application},
-                status=403,
-            )
-        return None
+    By the time this view runs, the user has already authenticated to this
+    service via allauth (LoginRequiredMixin sends them through the normal
+    email-code/Google flow first, preserving ?login_challenge= via ?next=).
+    All that is left to decide is: does this user's email domain admit the
+    application making the request? If so, accept the Hydra login request
+    (immediately — there is no separate "log in" step here, since allauth
+    already established who the user is); if not, reject it with a 403-style
+    page, mirroring the previous AuthorizationView._check_domain behaviour.
+    """
+
+    template_name = "oauth2_provider/authorization_denied.html"
 
     def get(self, request, *args, **kwargs):
-        if weak := _reject_weak_pkce(request.GET):
-            return weak
-        if request.user.is_authenticated:
-            client_id = request.GET.get("client_id", "")
-            if denied := self._check_domain(request, client_id):
-                return denied
-        return super().get(request, *args, **kwargs)
+        challenge = request.GET.get("login_challenge", "")
+        if not challenge:
+            return HttpResponseBadRequest("Missing login_challenge.")
+        try:
+            login_request = hydra.get_login_request(challenge)
+        except hydra.HydraAdminError:
+            raise Http404("Unknown or expired login request.")
 
-    def form_valid(self, form):
-        if weak := _reject_weak_pkce(self.request.POST):
+        if weak := _reject_weak_pkce(login_request):
             return weak
-        client_id = form.cleaned_data["client_id"]
-        if denied := self._check_domain(self.request, client_id):
-            return denied
-        return super().form_valid(form)
 
-    def create_authorization_response(self, request, scopes, credentials, allow):
-        # Both the consent (form_valid) and auto-approve (skip_authorization)
-        # paths funnel through here, so this is the single point where a sign-in
-        # is recorded. super() raises on failure, so we only log a granted code.
-        response = super().create_authorization_response(
-            request, scopes, credentials, allow
-        )
-        if allow:
-            application = get_application_model().objects.get(
-                client_id=credentials["client_id"]
+        application = hydra.application_from_client(login_request["client"])
+        if not application.is_active:
+            raise Http404("Unknown client")
+
+        if not _is_domain_allowed(application, request.user.email):
+            return render(
+                request, self.template_name, {"application": application}, status=403
             )
-            SignInEvent.objects.create(user=request.user, application=application)
-        return response
+
+        redirect_to = hydra.accept_login(challenge, subject=str(request.user.pk))
+        return redirect(redirect_to)
 
 
-class DiscoveryInfoView(oidc_views.ConnectDiscoveryInfoView):
-    """Advertise only what this server actually honours.
+class HydraConsentView(LoginRequiredMixin, View):
+    """The Hydra consent-challenge endpoint (``/urls/consent``).
 
-    The toolkit hardcodes ``HS256`` and the ``plain`` PKCE method into the
-    discovery document, but every Application is constrained to RS256 (a model
-    CheckConstraint) and only S256 PKCE is accepted (see _reject_weak_pkce).
-    Trim those two fields so a relying party cannot be led to negotiate an
-    algorithm or challenge method the server will reject. (response_types is
-    narrowed to ["code"] via OIDC_RESPONSE_TYPES_SUPPORTED.)
+    Every application this service registers is created with
+    ``skip_consent`` following the application's own ``skip_authorization``
+    setting, so this view's job is mostly to accept immediately and record
+    the SignInEvent — but it still renders an explicit consent screen for
+    applications that have not opted into skipping it, matching the previous
+    AuthorizationView/authorize.html behaviour.
+    """
+
+    template_name = "oauth2_provider/authorize.html"
+
+    def get(self, request, *args, **kwargs):
+        challenge = request.GET.get("consent_challenge", "")
+        if not challenge:
+            return HttpResponseBadRequest("Missing consent_challenge.")
+        try:
+            consent_request = hydra.get_consent_request(challenge)
+        except hydra.HydraAdminError:
+            raise Http404("Unknown or expired consent request.")
+
+        if consent_request.get("skip") or consent_request["client"].get("skip_consent"):
+            return self._accept(request, challenge, consent_request)
+
+        application = hydra.application_from_client(consent_request["client"])
+        return render(
+            request,
+            self.template_name,
+            {
+                "application": application,
+                "scopes_descriptions": consent_request.get("requested_scope", []),
+                "challenge": challenge,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        challenge = request.POST.get("consent_challenge", "")
+        if "allow" not in request.POST:
+            return redirect(hydra.reject_consent(challenge))
+
+        try:
+            consent_request = hydra.get_consent_request(challenge)
+        except hydra.HydraAdminError:
+            raise Http404("Unknown or expired consent request.")
+        return self._accept(request, challenge, consent_request)
+
+    def _accept(self, request, challenge, consent_request):
+        application = hydra.application_from_client(consent_request["client"])
+        redirect_to = hydra.accept_consent(
+            challenge,
+            grant_scope=consent_request.get("requested_scope", []),
+            user=request.user,
+        )
+        SignInEvent.objects.create(
+            user=request.user,
+            application_client_id=application.client_id,
+            application_name=application.name,
+            team_id=application.team_id or None,
+        )
+        return redirect(redirect_to)
+
+
+class HydraLogoutView(View):
+    """The Hydra RP-initiated-logout endpoint (``/urls/logout``)."""
+
+    template_name = "oauth2_provider/logout_confirm.html"
+
+    def get(self, request, *args, **kwargs):
+        challenge = request.GET.get("logout_challenge", "")
+        if not challenge:
+            return HttpResponseBadRequest("Missing logout_challenge.")
+        request.session["logout_challenge"] = challenge
+        return render(request, self.template_name, {})
+
+    def post(self, request, *args, **kwargs):
+        challenge = request.session.pop("logout_challenge", "")
+        if "allow" in request.POST:
+            redirect_to = hydra.accept_logout(challenge)
+        else:
+            redirect_to = hydra.reject_logout(challenge)
+        return redirect(redirect_to)
+
+
+class DiscoveryInfoView(View):
+    """Proxy Hydra's discovery document, trimmed to what this server honours.
+
+    See users.hydra.discovery_document for what's trimmed and why.
     """
 
     def get(self, request, *args, **kwargs):
-        response = super().get(request, *args, **kwargs)
-        data = json.loads(response.content)
-        data["id_token_signing_alg_values_supported"] = ["RS256"]
-        data["code_challenge_methods_supported"] = ["S256"]
-        response.content = json.dumps(data)
-        return response
+        return JsonResponse(hydra.discovery_document())

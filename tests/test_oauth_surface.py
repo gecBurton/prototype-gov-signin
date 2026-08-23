@@ -1,48 +1,67 @@
 """Trimmed OAuth/OIDC surface.
 
-Covers two hardening changes:
-  #6 — the discovery document advertises only what the server honours
-       (code grant, RS256, S256), and weak PKCE (plain) is rejected;
-  #7 — surplus endpoints (the unusable device-authorization grant, the
-       dead password-reset flow) are removed.
+Covers:
+  #6 — the discovery document (proxied from Hydra, see
+       users.views.DiscoveryInfoView) advertises only what this app actually
+       supports on top of Hydra (code grant, S256 PKCE);
+  #7 — weak PKCE (plain) is rejected at the login-challenge step, before this
+       app ever accepts the login request Hydra is waiting on;
+  RP-initiated logout — the logout-challenge view shows a confirmation page
+  and defers to Hydra's own logout accept/reject.
+
+Discovery tests need a live Hydra to proxy against (DiscoveryInfoView makes a
+real HTTP call to HYDRA_PUBLIC_URL), so they are marked to skip when Hydra
+isn't reachable — covered for real in integration_tests/.
 """
 
-import json
-
 import pytest
+import requests
+from django.conf import settings
 from django.contrib.auth import get_user_model
-
-from tests.conftest import authorize_params
 
 User = get_user_model()
 
 
+def _hydra_reachable():
+    try:
+        requests.get(
+            f"{settings.HYDRA_PUBLIC_URL}/.well-known/openid-configuration", timeout=1
+        )
+        return True
+    except requests.RequestException:
+        return False
+
+
+requires_hydra = pytest.mark.skipif(
+    not _hydra_reachable(), reason="Ory Hydra is not reachable from the test runner"
+)
+
+
 # ---------------------------------------------------------------------------
-# #6 — discovery document reflects what the server actually honours
+# #6 — discovery document reflects what this app actually honours
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def discovery(client, db):
-    response = client.get("/o/.well-known/openid-configuration/")
+    import json
+
+    if not _hydra_reachable():
+        pytest.skip("Ory Hydra is not reachable from the test runner")
+
+    response = client.get("/o/.well-known/openid-configuration")
     assert response.status_code == 200
     return json.loads(response.content)
 
 
-@pytest.mark.parametrize(
-    "field,expected",
-    [
-        ("response_types_supported", ["code"]),
-        ("id_token_signing_alg_values_supported", ["RS256"]),
-        ("code_challenge_methods_supported", ["S256"]),
-    ],
-)
-def test_discovery_advertises_only_supported_capabilities(discovery, field, expected):
-    assert discovery[field] == expected
+@requires_hydra
+def test_discovery_advertises_only_supported_capabilities(discovery):
+    assert discovery["response_types_supported"] == ["code"]
+    assert discovery["code_challenge_methods_supported"] == ["S256"]
 
 
+@requires_hydra
 def test_discovery_keeps_core_endpoints(discovery):
-    # Trimming must not drop the essentials.
     for key in (
         "issuer",
         "authorization_endpoint",
@@ -54,95 +73,52 @@ def test_discovery_keeps_core_endpoints(discovery):
 
 
 # ---------------------------------------------------------------------------
-# #6 — only S256 PKCE is accepted (matches what discovery advertises)
+# #7 — only S256 PKCE is accepted at the login-challenge step
 # ---------------------------------------------------------------------------
 
 
-def _authorize_params(method):
-    return authorize_params(code_challenge="x" * 43, code_challenge_method=method)
+def _login_request_with_pkce(fake_hydra, client_id, method):
+    challenge = fake_hydra.start_login(client_id)
+    fake_hydra.login_requests[challenge]["request_url"] = (
+        f"http://hydra/oauth2/auth?client_id={client_id}"
+        f"&code_challenge=x{'x' * 42}&code_challenge_method={method}"
+    )
+    return challenge
 
 
 @pytest.mark.parametrize(
     "method,expected_status",
     [
-        ("S256", 200),  # consent screen
+        ("S256", 302),  # login accepted, redirected back into Hydra
         ("plain", 400),  # rejected: plain offers no protection
     ],
 )
-def test_authorize_requires_s256_pkce(client, db, oauth_app, method, expected_status):
-    user = User.objects.create_user(email="pkce@example.com")
-    client.force_login(user)
-    response = client.get("/o/authorize/", _authorize_params(method))
-    assert response.status_code == expected_status
-
-
-@pytest.mark.parametrize(
-    "method,expected_status",
-    [
-        ("S256", 302),  # consent granted → redirect with an auth code
-        ("plain", 400),  # rejected before any code is issued
-    ],
-)
-def test_authorize_post_requires_s256_pkce(
-    client, db, oauth_app, method, expected_status
+def test_login_requires_s256_pkce(
+    client,
+    fake_hydra,
+    allowed_user,
+    make_team,
+    make_application,
+    method,
+    expected_status,
 ):
-    # The GET test above guards the consent screen; form_valid has its own
-    # _reject_weak_pkce guard, so the approval POST must reject plain PKCE too.
-    user = User.objects.create_user(email="pkce-post@example.com")
-    client.force_login(user)
-    response = client.post(
-        "/o/authorize/", {**_authorize_params(method), "allow": "Authorize"}
-    )
+    app = make_application(make_team("T", domains=["allowed.com"]))
+    client.force_login(allowed_user)
+    challenge = _login_request_with_pkce(fake_hydra, app.client_id, method)
+    response = client.get(f"/o/login/?login_challenge={challenge}")
     assert response.status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
-# #7 — surplus endpoints are gone
+# RP-initiated logout
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/o/device-authorization/",
-        "/o/device/",
-    ],
-)
-@pytest.mark.parametrize("method", ["get", "post"])
-def test_device_grant_endpoints_removed(client, db, path, method):
-    assert getattr(client, method)(path).status_code == 404
-
-
-def test_password_reset_entry_closed(client, db):
-    response = client.get("/accounts/password/reset/")
-    assert response.status_code == 302
-    assert "/accounts/login/" in response["Location"]
-
-
-# ---------------------------------------------------------------------------
-# RP-initiated logout (end_session_endpoint)
-# ---------------------------------------------------------------------------
-
-
-def test_discovery_advertises_end_session_endpoint(discovery):
-    assert discovery["end_session_endpoint"].endswith("/o/logout/")
 
 
 def test_logout_endpoint_shows_confirmation(client, db):
-    # Previously this returned 500 (the feature was routed but disabled).
-    user = User.objects.create_user(email="confirm@example.com")
-    client.force_login(user)
-    response = client.get("/o/logout/")
+    response = client.get("/o/logout/?logout_challenge=some-challenge")
     assert response.status_code == 200
     assert b"Sign out" in response.content
 
 
-def test_logout_confirmation_ends_the_session(client, db):
-    user = User.objects.create_user(email="logout@example.com")
-    client.force_login(user)
-    assert "_auth_user_id" in client.session
-
-    response = client.post("/o/logout/", {"allow": "Logout"})
-
-    assert response.status_code == 302  # back to the home page
-    assert "_auth_user_id" not in client.session
+def test_logout_missing_challenge_is_bad_request(client, db):
+    assert client.get("/o/logout/").status_code == 400

@@ -1,7 +1,6 @@
 from django.contrib import admin
-from django.urls import include, path, re_path
+from django.urls import include, path
 from django.views.generic import RedirectView, TemplateView
-from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
 from users.views import (
     ApplicationDelete,
     ApplicationDetail,
@@ -9,8 +8,10 @@ from users.views import (
     ApplicationRegistration,
     ApplicationSecretRegenerate,
     ApplicationUpdate,
-    AuthorizationView,
     DiscoveryInfoView,
+    HydraConsentView,
+    HydraLoginView,
+    HydraLogoutView,
     SignInLog,
     TeamDetail,
     TeamDomainAdd,
@@ -41,58 +42,40 @@ management_urlpatterns = [
         name="register",
     ),
     path(
-        "teams/<uuid:team_pk>/applications/<uuid:pk>/",
+        "teams/<uuid:team_pk>/applications/<str:pk>/",
         ApplicationDetail.as_view(),
         name="detail",
     ),
     path(
-        "teams/<uuid:team_pk>/applications/<uuid:pk>/update/",
+        "teams/<uuid:team_pk>/applications/<str:pk>/update/",
         ApplicationUpdate.as_view(),
         name="update",
     ),
     path(
-        "teams/<uuid:team_pk>/applications/<uuid:pk>/delete/",
+        "teams/<uuid:team_pk>/applications/<str:pk>/delete/",
         ApplicationDelete.as_view(),
         name="delete",
     ),
     path(
-        "teams/<uuid:team_pk>/applications/<uuid:pk>/regenerate-secret/",
+        "teams/<uuid:team_pk>/applications/<str:pk>/regenerate-secret/",
         ApplicationSecretRegenerate.as_view(),
         name="regenerate-secret",
     ),
 ]
 
-authorize_urlpatterns = [
-    path("authorize/", AuthorizationView.as_view(), name="authorize"),
-]
-
-# Drop endpoints the server cannot honour:
-#  - authorize/ is replaced by our domain-checking AuthorizationView above;
-#  - the device-authorization grant is unusable (every Application is
-#    constrained to the authorization-code grant), so don't expose its
-#    endpoints at all.
-_DROPPED_BASE_NAMES = {
-    "authorize",
-    "device-authorization",
-    "device",
-    "device-confirm",
-    "device-grant-status",
-}
-filtered_base_urlpatterns = [
-    p for p in base_urlpatterns if p.name not in _DROPPED_BASE_NAMES
-]
-
-# Replace the toolkit's discovery document with one that advertises only what
-# we honour (RS256 / S256 / code); see DiscoveryInfoView.
-discovery_urlpatterns = [
-    re_path(
-        r"^\.well-known/openid-configuration/?$",
+# Hydra delegates login, consent and logout decisions to this app by
+# redirecting the user's browser here with a challenge id (see
+# HYDRA_ADMIN_URL/URLS_LOGIN/URLS_CONSENT/URLS_LOGOUT in settings and
+# docker-compose.yml). These replace django-oauth-toolkit's /o/authorize/.
+hydra_urlpatterns = [
+    path("login/", HydraLoginView.as_view(), name="hydra-login"),
+    path("consent/", HydraConsentView.as_view(), name="hydra-consent"),
+    path("logout/", HydraLogoutView.as_view(), name="hydra-logout"),
+    path(
+        ".well-known/openid-configuration",
         DiscoveryInfoView.as_view(),
         name="oidc-connect-discovery-info",
     ),
-]
-filtered_oidc_urlpatterns = [
-    p for p in oidc_urlpatterns if p.name != "oidc-connect-discovery-info"
 ]
 
 urlpatterns = [
@@ -112,16 +95,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path(
         "o/",
-        include(
-            (
-                authorize_urlpatterns
-                + filtered_base_urlpatterns
-                + management_urlpatterns
-                + discovery_urlpatterns
-                + filtered_oidc_urlpatterns,
-                "oauth2_provider",
-            )
-        ),
+        include((hydra_urlpatterns + management_urlpatterns, "oauth2_provider")),
     ),
     # Close allauth's standalone signup page: accounts are only ever created by
     # the login-by-code auto-enrol flow (users/forms.py) or a verified Google

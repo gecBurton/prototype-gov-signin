@@ -3,31 +3,20 @@
 Before the fix, allauth's open ``/accounts/signup/`` page (only an email, no
 password, no code) plus ``ACCOUNT_EMAIL_VERIFICATION="optional"`` handed an
 unauthenticated caller a logged-in session for an address they did not control,
-and ``OIDCValidator`` then asserted ``email_verified: true`` for it — letting
-anyone mint an ID token impersonating any email and bypass the domain allowlist.
+and the consent-accept step then asserted ``email_verified: true`` for it —
+letting anyone mint an ID token impersonating any email and bypass the domain
+allowlist.
 
 The fix has three parts, covered here:
   1. the standalone signup page is closed (urls.py);
   2. email verification is mandatory, so no unverified session (settings.py);
   3. the ``email_verified`` claim reflects the real EmailAddress state
-     (validators.py).
+     (users.hydra.accept_consent).
 """
-
-import json
-from types import SimpleNamespace
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
-from validators import OIDCValidator
-
-from tests.conftest import (
-    authorize_params,
-    decode_id_token,
-    exchange_code_for_tokens,
-    pkce_pair,
-)
 
 User = get_user_model()
 
@@ -56,61 +45,67 @@ def test_signup_post_creates_no_account_and_no_session(client, db):
 
 # ---------------------------------------------------------------------------
 # 3. email_verified reflects the real EmailAddress state, not a hardcoded True
+#
+# This is now computed in users.hydra.accept_consent (the Hydra-facing
+# equivalent of the old OIDCValidator.get_additional_claims), which builds the
+# session dict handed to Hydra's consent-accept admin API — Hydra puts that
+# straight into the ID token it signs, so asserting on the built session dict
+# here is equivalent to asserting on the eventual claim.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("verified", [True, False])
-def test_email_verified_claim_follows_emailaddress(db, verified):
-    user = User.objects.create_user(email="claim@example.com")
+def test_email_verified_claim_follows_emailaddress(
+    db, fake_hydra, allowed_user, make_team, make_application, verified, monkeypatch
+):
+    EmailAddress.objects.filter(user=allowed_user).delete()
     EmailAddress.objects.create(
-        user=user, email=user.email, primary=True, verified=verified
+        user=allowed_user, email=allowed_user.email, primary=True, verified=verified
     )
-    claims = OIDCValidator().get_additional_claims(SimpleNamespace(user=user))
-    assert claims["email_verified"] is verified
+    app = make_application(make_team("T", domains=["allowed.com"]))
+
+    captured = {}
+    original_request = __import__("users.hydra", fromlist=["_request"])._request
+
+    def _capture(method, path, **kwargs):
+        if path == "/admin/oauth2/auth/requests/consent/accept":
+            captured.update(kwargs["json"])
+        return original_request(method, path, **kwargs)
+
+    monkeypatch.setattr("users.hydra._request", _capture)
+
+    challenge = fake_hydra.start_consent(app.client_id)
+    from django.test import Client
+
+    c = Client()
+    c.force_login(allowed_user)
+    c.post("/o/consent/", {"consent_challenge": challenge, "allow": "Authorize"})
+
+    assert captured["session"]["id_token"]["email_verified"] is verified
 
 
-def test_email_verified_false_without_emailaddress(db):
+def test_email_verified_false_without_emailaddress(
+    db, fake_hydra, allowed_user, make_team, make_application, monkeypatch
+):
     """A user with no EmailAddress row must not be reported as verified."""
-    user = User.objects.create_user(email="noaddr@example.com")
-    claims = OIDCValidator().get_additional_claims(SimpleNamespace(user=user))
-    assert claims["email_verified"] is False
+    EmailAddress.objects.filter(user=allowed_user).delete()
+    app = make_application(make_team("T", domains=["allowed.com"]))
 
+    captured = {}
+    original_request = __import__("users.hydra", fromlist=["_request"])._request
 
-# ---------------------------------------------------------------------------
-# End-to-end invariant: an unverified identity can never obtain a token that
-# vouches for its email. This drives the real /o/authorize/ and /o/token/
-# endpoints, so it guards the whole issuance pipeline — not just the claim
-# helper — against any regression that reintroduces a hardcoded "verified".
-# ---------------------------------------------------------------------------
+    def _capture(method, path, **kwargs):
+        if path == "/admin/oauth2/auth/requests/consent/accept":
+            captured.update(kwargs["json"])
+        return original_request(method, path, **kwargs)
 
+    monkeypatch.setattr("users.hydra._request", _capture)
 
-@pytest.mark.django_db
-def test_unverified_session_cannot_mint_a_verified_id_token(client, oauth_app):
-    """The core invariant the original vulnerability broke.
+    challenge = fake_hydra.start_consent(app.client_id)
+    from django.test import Client
 
-    A relying party trusts ``email_verified`` to decide the address really is
-    the user's. Here the user has a live session but *no* verified
-    EmailAddress (as if a session were obtained for an address whose control
-    was never proven). The issued ID token must report ``email_verified: false``
-    — and must never claim true — so no downstream service is misled into
-    treating the attacker as the address owner.
-    """
-    # example.com matches oauth_app's allowed domain so the authorize step is
-    # reached; this test is about the email_verified claim, not domain access.
-    user = User.objects.create_user(email="unverified@example.com")
-    client.force_login(user)
+    c = Client()
+    c.force_login(allowed_user)
+    c.post("/o/consent/", {"consent_challenge": challenge, "allow": "Authorize"})
 
-    verifier, challenge = pkce_pair()
-    params = authorize_params(scope="openid email", code_challenge=challenge)
-
-    response = client.post("/o/authorize/", {**params, "allow": "Authorize"})
-    assert response.status_code == 302
-    code = parse_qs(urlparse(response["Location"]).query)["code"][0]
-
-    response = exchange_code_for_tokens(client, code, verifier)
-    assert response.status_code == 200
-
-    claims = decode_id_token(json.loads(response.content)["id_token"])
-
-    assert claims["email"] == user.email
-    assert claims["email_verified"] is False
+    assert captured["session"]["id_token"]["email_verified"] is False

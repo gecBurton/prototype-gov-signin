@@ -1,29 +1,39 @@
 import pytest
 from django.contrib.auth import get_user_model
-from oauth2_provider.models import get_application_model
+from users.hydra import Application
 from users.views import _is_domain_allowed
 
-from tests.conftest import authorize_params_for
-
 User = get_user_model()
-Application = get_application_model()
 
 
 @pytest.fixture
-def app(make_team, make_application):
+def app(fake_hydra, make_team, make_application):
     return make_application(
         make_team("Restricted Team", domains=["allowed.com"]), name="Restricted App"
     )
 
 
 @pytest.fixture
-def no_domain_app(make_team, make_application):
+def no_domain_app(fake_hydra, make_team, make_application):
     return make_application(make_team("No Domain Team"), name="No Domain App")
 
 
 # ---------------------------------------------------------------------------
 # Unit tests for the helper function
 # ---------------------------------------------------------------------------
+
+
+def _fake_app(team_id, additional_emails=()):
+    return Application(
+        client_id="x",
+        name="x",
+        team_id=str(team_id),
+        redirect_uris=[],
+        post_logout_redirect_uris=[],
+        allowed_cors_origins=[],
+        skip_authorization=False,
+        additional_emails=list(additional_emails),
+    )
 
 
 @pytest.mark.parametrize(
@@ -45,7 +55,7 @@ def no_domain_app(make_team, make_application):
 )
 def test_is_domain_allowed(make_team, domains, email, expected):
     team = make_team("Test Team", domains=domains)
-    assert _is_domain_allowed(Application(team=team), email) is expected
+    assert _is_domain_allowed(_fake_app(team.pk), email) is expected
 
 
 @pytest.mark.parametrize(
@@ -65,74 +75,57 @@ def test_is_domain_allowed(make_team, domains, email, expected):
 )
 def test_additional_emails_bypass_domain(make_team, additional_emails, email, expected):
     team = make_team("VIP Team", domains=["allowed.com"])
-    application = Application(team=team, additional_emails=additional_emails)
+    application = _fake_app(team.pk, additional_emails=additional_emails)
     assert _is_domain_allowed(application, email) is expected
 
 
 # ---------------------------------------------------------------------------
-# Authorization view — GET (consent screen)
+# HydraLoginView — domain check at the login-challenge step
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "user_fixture,expected_status",
     [
-        ("allowed_user", 200),
+        ("allowed_user", 302),  # accepted, redirected back into Hydra
         ("blocked_user", 403),
     ],
 )
-def test_authorize_get_domain_check(
-    request, client, user_fixture, expected_status, app
+def test_login_view_domain_check(
+    request, client, fake_hydra, user_fixture, expected_status, app
 ):
     client.force_login(request.getfixturevalue(user_fixture))
-    response = client.get("/o/authorize/", authorize_params_for(app))
+    challenge = fake_hydra.start_login(app.client_id)
+    response = client.get(f"/o/login/?login_challenge={challenge}")
     assert response.status_code == expected_status
 
 
-def test_authorize_get_no_domain_app_denies_all(
-    client, allowed_user, blocked_user, no_domain_app
+def test_login_view_no_domain_app_denies_all(
+    client, fake_hydra, allowed_user, blocked_user, no_domain_app
 ):
     # A team that lists no domains admits no one (fail closed).
-    params = authorize_params_for(no_domain_app)
+    challenge = fake_hydra.start_login(no_domain_app.client_id)
     for user in (allowed_user, blocked_user):
         client.force_login(user)
-        assert client.get("/o/authorize/", params).status_code == 403
+        challenge = fake_hydra.start_login(no_domain_app.client_id)
+        assert client.get(f"/o/login/?login_challenge={challenge}").status_code == 403
 
 
-def test_authorize_hidden_application_is_404(client, allowed_user, app):
+def test_login_view_hidden_application_is_404(client, fake_hydra, allowed_user, app):
     # A soft-deleted application can never sign anyone in, even an allowed user.
-    app.is_active = False
-    app.save(update_fields=["is_active"])
+    from users import hydra
+
+    hydra.soft_delete(app.client_id)
     client.force_login(allowed_user)
-    response = client.get("/o/authorize/", authorize_params_for(app))
+    challenge = fake_hydra.start_login(app.client_id)
+    response = client.get(f"/o/login/?login_challenge={challenge}")
     assert response.status_code == 404
 
 
-def test_authorize_get_unauthenticated_redirects(client, app):
-    response = client.get("/o/authorize/", authorize_params_for(app))
+def test_login_view_unauthenticated_redirects(client, fake_hydra, app):
+    challenge = fake_hydra.start_login(app.client_id)
+    response = client.get(f"/o/login/?login_challenge={challenge}")
     assert response.status_code == 302  # redirect to login, no 403
-
-
-# ---------------------------------------------------------------------------
-# Authorization view — POST (form submission)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "user_fixture,expected_status",
-    [
-        ("allowed_user", 302),  # success → redirect with auth code
-        ("blocked_user", 403),
-    ],
-)
-def test_authorize_post_domain_check(
-    request, client, user_fixture, expected_status, app
-):
-    user = request.getfixturevalue(user_fixture)
-    client.force_login(user)
-    params = authorize_params_for(app)
-    response = client.post("/o/authorize/", {**params, "allow": "Authorize"})
-    assert response.status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
@@ -143,39 +136,39 @@ def test_authorize_post_domain_check(
 @pytest.mark.parametrize(
     "email,allowed_domains,expected_status",
     [
-        ("user@alpha.com", ["alpha.com", "beta.com"], 200),
-        ("user@beta.com", ["alpha.com", "beta.com"], 200),
+        ("user@alpha.com", ["alpha.com", "beta.com"], 302),
+        ("user@beta.com", ["alpha.com", "beta.com"], 302),
         ("user@gamma.com", ["alpha.com", "beta.com"], 403),
-        ("user@ALPHA.COM", ["alpha.com"], 200),  # email domain uppercase
-        ("user@alpha.com", ["ALPHA.COM"], 200),  # whitelist uppercase
+        ("user@ALPHA.COM", ["alpha.com"], 302),  # email domain uppercase
+        ("user@alpha.com", ["ALPHA.COM"], 302),  # whitelist uppercase
     ],
 )
-def test_authorize_domain_cases(
-    client, make_team, make_application, email, allowed_domains, expected_status
+def test_login_view_domain_cases(
+    client,
+    fake_hydra,
+    make_team,
+    make_application,
+    email,
+    allowed_domains,
+    expected_status,
 ):
     user = User.objects.create_user(email=email)
     application = make_application(make_team("Case Team", domains=allowed_domains))
     client.force_login(user)
-    response = client.get("/o/authorize/", authorize_params_for(application))
+    challenge = fake_hydra.start_login(application.client_id)
+    response = client.get(f"/o/login/?login_challenge={challenge}")
     assert response.status_code == expected_status
 
 
-def test_authorize_403_shows_app_name(client, blocked_user, app):
+def test_login_view_403_shows_app_name(client, fake_hydra, blocked_user, app):
     client.force_login(blocked_user)
-    response = client.get("/o/authorize/", authorize_params_for(app))
+    challenge = fake_hydra.start_login(app.client_id)
+    response = client.get(f"/o/login/?login_challenge={challenge}")
     assert response.status_code == 403
     assert app.name in response.content.decode()
 
 
-def test_authorize_unknown_client_id(client, allowed_user):
+def test_login_view_unknown_challenge_404s(client, allowed_user):
     client.force_login(allowed_user)
-    params = {
-        "client_id": "nonexistent-client-id",
-        "response_type": "code",
-        "scope": "openid",
-        "redirect_uri": "http://localhost/callback",
-        "code_challenge": "x" * 43,
-        "code_challenge_method": "S256",
-    }
-    response = client.get("/o/authorize/", params)
-    assert response.status_code != 500
+    response = client.get("/o/login/?login_challenge=nonexistent")
+    assert response.status_code == 404

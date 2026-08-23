@@ -66,7 +66,6 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "django.contrib.postgres",
     "users",
-    "oauth2_provider",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
@@ -162,9 +161,22 @@ STORAGES = {
 }
 
 AUTH_USER_MODEL = "users.User"
-OAUTH2_PROVIDER_APPLICATION_MODEL = "users.Application"
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
+
+# Ory Hydra is the OAuth2/OIDC authorization server: this app no longer issues
+# tokens itself (that was django-oauth-toolkit's job). Instead, Hydra
+# redirects the user's browser here — to HydraLoginView/HydraConsentView/
+# HydraLogoutView (see urls.py) — to decide who the user is and whether they
+# may proceed; this app then calls back into Hydra's admin API to resume the
+# flow. HYDRA_ADMIN_URL must never be reachable from outside the deployment
+# (see docker-compose.yml / production notes): it has no authentication of its
+# own beyond network isolation, and can mint sign-ins for any application.
+HYDRA_ADMIN_URL = os.environ.get("HYDRA_ADMIN_URL", "http://hydra:4445")
+# The public-facing URL of Hydra's own endpoints (authorize/token/jwks etc.),
+# used only to proxy its discovery document (DiscoveryInfoView) with the
+# fields this service doesn't actually honour trimmed off.
+HYDRA_PUBLIC_URL = os.environ.get("HYDRA_PUBLIC_URL", "http://hydra:4444")
 
 # Only allauth's backend — there is no password authentication. allauth's
 # AuthenticationBackend subclasses Django's ModelBackend, so it still provides
@@ -275,58 +287,3 @@ if DEBUG:
     }.items():
         if os.environ.get(_env):
             SOCIALACCOUNT_PROVIDERS["google"][_key] = os.environ[_env]
-
-_oidc_key = os.environ.get("OIDC_RSA_PRIVATE_KEY")
-if not _oidc_key:
-    _key_path = BASE_DIR / "oidc.key"
-    if _key_path.exists():
-        _oidc_key = _key_path.read_text()
-# The RSA key signs every ID token, so it is the root of trust. Without it the
-# service boots fine and only fails when the first token-signing request comes
-# in. Fail fast at startup instead, matching SECRET_KEY/ALLOWED_HOSTS. Skipped
-# under DEBUG (dev generates a key separately) and not enforced when the dummy
-# build-time value is present, since collectstatic never signs a token.
-if not DEBUG and not _oidc_key:
-    raise ImproperlyConfigured(
-        "No OIDC signing key found. Set the OIDC_RSA_PRIVATE_KEY environment "
-        "variable or provide iam/oidc.key (generate one with "
-        "`openssl genrsa -out iam/oidc.key 4096`)."
-    )
-
-OAUTH2_PROVIDER = {
-    "OIDC_ENABLED": True,
-    "OIDC_RSA_PRIVATE_KEY": _oidc_key,
-    "OAUTH2_VALIDATOR_CLASS": "validators.OIDCValidator",
-    # PKCE is mandatory for every client, public and confidential alike. This
-    # matches the toolkit's current default, but pin it explicitly so an upstream
-    # change to that default can never silently weaken us: PKCE defends against
-    # authorization-code injection, which a confidential client's secret does not
-    # (the secret stops code *theft*, not a code the legit client is tricked into
-    # exchanging). Clients that send a challenge are further held to S256 (see
-    # users.views._reject_weak_pkce).
-    "PKCE_REQUIRED": True,
-    # Short-lived access tokens (default is 10 hours). This service exists to
-    # gate access, so a token should not outlive a change in authorization by
-    # long. Relying parties refresh as needed. NB: refresh tokens are not
-    # re-checked against the domain allowlist, so revoking access in near-real
-    # time still needs explicit token revocation on domain/membership removal —
-    # tracked separately; this only bounds the access-token window.
-    "ACCESS_TOKEN_EXPIRE_SECONDS": 600,  # 10 minutes
-    # Only the authorization-code flow is permitted (every Application is
-    # constrained to the code grant), so advertise only "code" rather than the
-    # toolkit default that also lists the implicit/hybrid response types no
-    # client here can use. RS256-only and S256-only are trimmed from the
-    # discovery document in users.views.DiscoveryInfoView.
-    "OIDC_RESPONSE_TYPES_SUPPORTED": ["code"],
-    # OIDC RP-initiated logout: a relying party can end the user's session here
-    # (end_session_endpoint, advertised in the discovery document). The toolkit
-    # validates post_logout_redirect_uri against the application's registered
-    # values, always shows a confirmation page, and revokes the user's tokens on
-    # logout (its DELETE_TOKENS default).
-    "OIDC_RP_INITIATED_LOGOUT_ENABLED": True,
-    "SCOPES": {
-        "openid": "OpenID Connect scope",
-        "profile": "User profile",
-        "email": "Email address",
-    },
-}

@@ -1,6 +1,7 @@
 from django.conf import settings
 
-from users.models import AllowedEmailDomain, Application
+from users.hydra import list_all_active_applications
+from users.models import AllowedEmailDomain
 
 
 def email_domain_suffixes(email: str) -> set[str]:
@@ -29,7 +30,7 @@ def is_signin_domain_allowed(email: str) -> bool:
 
     Otherwise refused — the gate is fail-closed. This is the global check,
     applied ahead of the finer per-application check at the authorize endpoint
-    (see views._is_domain_allowed).
+    (see users.views._is_domain_allowed).
     """
     if not email:
         return False
@@ -49,8 +50,9 @@ def is_signin_domain_allowed(email: str) -> bool:
     # per-application additional_emails bypass (views._is_domain_allowed) at the
     # global gate, so a user listed there can sign in and reach the application
     # that lists them — otherwise this gate would lock them out beforehand.
-    # additional_emails is normalised lowercase on save and email is lowercased
-    # above, so this exact array-membership match (Postgres @>) is sound.
-    return Application.objects.filter(
-        is_active=True, additional_emails__contains=[email]
-    ).exists()
+    # additional_emails is normalised lowercase in users.hydra, and email is
+    # lowercased above.
+    return any(
+        email in application.additional_email_list
+        for application in list_all_active_applications()
+    )

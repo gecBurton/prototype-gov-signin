@@ -47,8 +47,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen --group integration
       - run: uv run playwright install --with-deps chromium
-      - name: Generate OIDC signing key
-        run: openssl genrsa -out iam/oidc.key 4096
       - name: Start services
         run: docker compose up -d --build
       - name: Wait for services
